@@ -41,7 +41,7 @@ data/
 !notebooks/*.ipynb
 
 #ignore dataloader
-notebooks/Dataloader*.ipynb
+notebooks/Dataloader*
 
 # But still ignore checkpoint files in notebooks
 notebooks/.ipynb_checkpoints/
