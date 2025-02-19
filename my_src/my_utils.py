@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import anndata as ad
 import scipy
-import scipy.sparse
+import scipy.sparse as sparse
 
 def check_annotation_keys(adata, verbose=True):
     """
