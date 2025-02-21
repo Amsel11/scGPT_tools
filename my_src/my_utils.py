@@ -11,7 +11,20 @@ import anndata as ad
 import scipy
 import scipy.sparse
 
-def check_annotation_keys(adata, verbose=True):
+def check_annotation_keys(adata, verbose=False):
+    """
+    Check for common variations of cell type, gene, and HVG annotations in AnnData object.
+    Only prints information if verbose=True, otherwise runs silently.
+    Provides feedback when no known keys are found.
+    
+
+    Args:
+        adata: AnnData object
+        verbose: If True, prints examples and counts for each found key. If False, runs silently (default: False)
+    
+    Returns:
+        dict: Found keys for cell types, gene names, and HVG
+    """
     """
     Check for common variations of cell type, gene, and HVG annotations in AnnData object.
     Shows multiple examples and counts for each found key if verbose=True.
@@ -56,13 +69,25 @@ def check_annotation_keys(adata, verbose=True):
         'highly_variable_rank', 'highly_variable_scores',
         'dispersions_norm', 'dispersions'
     ]
+
+    batch_keys = [
+        'batch', 'batch_id', 'batch_label',
+        'batch_condition', 'batch_index',
+        'batch_name', 'batch_number',
+        'batch_group', 'batch_category',
+        'batch_identifier', 'batch_id_label',
+        'batch_id_name', 'batch_id_number',
+        'batch_id_group', 'batch_id_category',
+        'donor_id', 'donor', 'sample', 'sample_id'
+    ]
     
     # Rest of your code remains the same...
     
     found_keys = {
         'cell_type_keys': [],
         'gene_keys': [],
-        'hvg_keys': []
+        'hvg_keys': [],
+        'batch_keys': []
     }
     
     def get_examples_and_counts(series, n=5):
@@ -140,6 +165,28 @@ def check_annotation_keys(adata, verbose=True):
     
     if not hvg_found:
         print("\n⚠️ No HVG annotations found in .var columns")
+
+    # Check for batch annotations
+    print("\nChecking highly variable gene annotations in .obs:")
+    batch_found = False
+    for key in batch_keys:
+        if key in adata.obs.columns:
+            batch_found = True
+            if adata.obs[key].dtype == bool:
+                n_batch = adata.obs[key].sum()
+                total = len(adata.obs[key])
+                print(f"\n✓ Found '{key}' (boolean) with {n_batch}/{total} genes marked as highly variable")
+                print(f"Percentage: {(n_batch/total)*100:.2f}%")
+            else:
+                examples, counts, n_unique = get_examples_and_counts(adata.obs[key])
+                print(f"\n✓ Found '{key}' with {n_unique} unique values")
+                print(f"Examples:")
+                for i, ex in enumerate(examples, 1):
+                    print(f"  {i}. {ex}")
+            found_keys['batch_keys'].append(key)
+    
+    if not batch_found:
+        print("\n⚠️ No batch annotations found in .obs columns")
     
     # Create a DataFrame to display cell type keys side by side
     if len(found_keys['cell_type_keys']) > 1:
