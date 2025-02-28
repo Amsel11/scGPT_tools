@@ -13,7 +13,6 @@
 | Fine-tuned scGPT | 77-78% | 74-76% | 72-76% | 75.5% |
 | Standard scGPT | 49-56% | 46-52% | 43-48% | 49.0% |
 | GenePT/xGPT | 34-55% | 32-49% | 26-43% | 39.8% |
-| Ensemble Approach | 55-56% | 53-54% | 51-52% | 53.5% |
 
 ### F1 Score Metrics by Model Type
 
@@ -22,7 +21,6 @@
 | Fine-tuned scGPT | 0.659-0.686 | 0.750-0.788 |
 | Standard scGPT | 0.374-0.446 | 0.465-0.530 |
 | GenePT/xGPT | 0.234-0.411 | 0.308-0.505 |
-| Ensemble Approach | 0.448-0.460 | 0.536-0.550 |
 
 ### Algorithm Performance with Fine-tuned scGPT (Weighted Avg F1)
 
