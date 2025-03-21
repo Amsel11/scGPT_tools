@@ -8,6 +8,14 @@ Utility functions for scGPT scripts
 import json
 from pathlib import Path
 import pprint
+from html import escape
+import pandas as pd
+import scanpy as sc
+import h5py
+import scipy.sparse as sparse
+from anndata import AnnData
+
+
 
 def test_embed_config(adata=None, config_path=None, metadata_path=None):
     """
@@ -89,3 +97,171 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     test_embed_config(config_path=args.config, metadata_path=args.metadata)
+
+
+def generate_basic_html_report(analysis_text, found_keys, adata, output_path):
+    """
+    Generate a simple HTML report with the analysis text and metadata.
+    No visualizations, just nicely formatted text.
+    """
+    # Format the analysis text for HTML
+    html_analysis = escape(analysis_text).replace('\n', '<br>').replace('  ', '&nbsp;&nbsp;')
+    
+    # Create basic metadata table
+    metadata_table = "<table border='1' cellpadding='5' cellspacing='0'>\n"
+    metadata_table += "<tr><th>Category</th><th>Found Keys</th></tr>\n"
+    
+    for category, keys in found_keys.items():
+        category_name = category.replace('_', ' ').title()
+        keys_list = ", ".join(keys) if keys else "None found"
+        metadata_table += f"<tr><td>{category_name}</td><td>{keys_list}</td></tr>\n"
+    
+    metadata_table += "</table>"
+    
+    # Create dataset summary
+    dataset_summary = f"<h3>Dataset Summary</h3>"
+    dataset_summary += f"<p>Dimensions: {adata.n_obs} cells × {adata.n_vars} genes</p>"
+    
+    # Create HTML file
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>scGPT Analysis: {Path(output_path).stem}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
+            pre {{ background-color: #f5f5f5; padding: 15px; overflow-x: auto; }}
+            h1, h2, h3 {{ color: #2c3e50; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+            th, td {{ text-align: left; padding: 12px; }}
+            th {{ background-color: #f2f2f2; }}
+            .analysis {{ background-color: #f9f9f9; padding: 20px; border-radius: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>scGPT Data Analysis Report</h1>
+        
+        {dataset_summary}
+        
+        <h2>Found Metadata Keys</h2>
+        {metadata_table}
+        
+        <h2>Detailed Analysis</h2>
+        <div class="analysis">
+            {html_analysis}
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Write to file
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    return output_path
+
+
+# loading utils functions for loading subset of data
+def _load_anndata(path, subset=None):
+    """Internal function to load anndata with subsetting"""
+    # Load subset using h5py for memory efficiency
+    start_row = subset.get('start_row', 0)
+    n_rows = subset.get('n_rows', None)
+    obs_columns = subset.get('obs_columns', None)
+    
+    with h5py.File(path, "r") as f:
+        # Determine total rows
+        total_rows = len(f["X"]["indptr"]) - 1
+        if n_rows is None:
+            n_rows = total_rows - start_row
+            
+        print(f"Loading subset: rows {start_row}-{start_row+n_rows} of {total_rows}")
+
+        # Load components
+        data, indices, indptr = _load_csr_matrix_components(f, start_row, n_rows)
+        var_df = _load_var_metadata(f)
+        obs_df = _load_obs_metadata(f, start_row, n_rows, obs_columns)
+
+        # Create sparse matrix
+        X_subset = sparse.csr_matrix(
+            (data, indices, indptr), shape=(n_rows, len(var_df))
+        )
+        
+        # Create the AnnData object
+        adata_subset = AnnData(X=X_subset, obs=obs_df, var=var_df)
+        
+        # Load obsm data including embeddings
+        if "obsm" in f:
+            for obsm_key in f["obsm"].keys():
+                # Get the data for the selected rows
+                if isinstance(f["obsm"][obsm_key], h5py.Dataset):
+                    obsm_data = f["obsm"][obsm_key][start_row:start_row+n_rows]
+                    adata_subset.obsm[obsm_key] = obsm_data
+                else:
+                    print(f"Warning: Could not load {obsm_key} from obsm, not a Dataset")
+
+    return adata_subset
+
+def _load_csr_matrix_components(f, start_row, n_rows):
+    """Helper function to load CSR matrix components from h5ad file."""
+    indptr = f["X"]["indptr"][start_row : start_row + n_rows + 1]
+    start_idx, end_idx = indptr[0], indptr[-1]
+
+    data = f["X"]["data"][start_idx:end_idx]
+    indices = f["X"]["indices"][start_idx:end_idx]
+    indptr = indptr - start_idx  # Adjust indptr to start at 0
+
+    return data, indices, indptr
+
+
+def _load_var_metadata(f):
+    """Helper function to load variable (gene) metadata."""
+    var_dict = {}
+    for key in f["var"].keys():
+        item = f["var"][key]
+        if isinstance(item, h5py.Dataset):
+            var_dict[key] = item[:]
+        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
+            categories = [
+                cat.decode("utf-8") if isinstance(cat, bytes) else cat
+                for cat in item["categories"][:]
+            ]
+            codes = item["codes"][:]
+            var_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
+
+    var_df = pd.DataFrame(var_dict)
+
+    # Convert bytes to strings
+    for col in var_df.columns:
+        if var_df[col].dtype == object:
+            var_df[col] = var_df[col].apply(
+                lambda x: x.decode("utf-8") if isinstance(x, bytes) else x
+            )
+
+    if "feature_name" in var_df:
+        var_df.index = var_df["feature_name"]
+
+    return var_df
+
+
+def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
+    """Helper function to load observation (cell) metadata."""
+    selected_obs_keys = obs_columns if obs_columns else list(f["obs"].keys())
+    obs_dict = {}
+
+    for key in selected_obs_keys:
+        if key not in f["obs"]:
+            continue
+
+        item = f["obs"][key]
+        if isinstance(item, h5py.Dataset):
+            obs_dict[key] = item[start_row : start_row + n_rows]
+        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
+            categories = [
+                cat.decode("utf-8") if isinstance(cat, bytes) else cat
+                for cat in item["categories"][:]
+            ]
+            codes = item["codes"][start_row : start_row + n_rows]
+            obs_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
+
+    return pd.DataFrame(obs_dict)

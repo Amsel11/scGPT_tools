@@ -382,66 +382,6 @@ def print_summary(adata, found_keys, output_dir, metadata_file, output):
     print(f"Analysis saved to: {output}")
     print("="*80)
 
-def generate_basic_html_report(analysis_text, found_keys, adata, output_path):
-    """
-    Generate a simple HTML report with the analysis text and metadata.
-    No visualizations, just nicely formatted text.
-    """
-    # Format the analysis text for HTML
-    html_analysis = escape(analysis_text).replace('\n', '<br>').replace('  ', '&nbsp;&nbsp;')
-    
-    # Create basic metadata table
-    metadata_table = "<table border='1' cellpadding='5' cellspacing='0'>\n"
-    metadata_table += "<tr><th>Category</th><th>Found Keys</th></tr>\n"
-    
-    for category, keys in found_keys.items():
-        category_name = category.replace('_', ' ').title()
-        keys_list = ", ".join(keys) if keys else "None found"
-        metadata_table += f"<tr><td>{category_name}</td><td>{keys_list}</td></tr>\n"
-    
-    metadata_table += "</table>"
-    
-    # Create dataset summary
-    dataset_summary = f"<h3>Dataset Summary</h3>"
-    dataset_summary += f"<p>Dimensions: {adata.n_obs} cells × {adata.n_vars} genes</p>"
-    
-    # Create HTML file
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>scGPT Analysis: {Path(output_path).stem}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
-            pre {{ background-color: #f5f5f5; padding: 15px; overflow-x: auto; }}
-            h1, h2, h3 {{ color: #2c3e50; }}
-            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-            th, td {{ text-align: left; padding: 12px; }}
-            th {{ background-color: #f2f2f2; }}
-            .analysis {{ background-color: #f9f9f9; padding: 20px; border-radius: 5px; }}
-        </style>
-    </head>
-    <body>
-        <h1>scGPT Data Analysis Report</h1>
-        
-        {dataset_summary}
-        
-        <h2>Found Metadata Keys</h2>
-        {metadata_table}
-        
-        <h2>Detailed Analysis</h2>
-        <div class="analysis">
-            {html_analysis}
-        </div>
-    </body>
-    </html>
-    """
-    
-    # Write to file
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-    
-    return output_path
 
 
 # === MAIN FUNCTION ===
@@ -529,20 +469,23 @@ def main():
     output_buffer = io.StringIO()
     with redirect_stdout(output_buffer):
         found_keys = check_annotation_keys(adata)
-        
+         
         # Additional verbose information if requested
         if args.verbose:
-            print("\n----- ADDITIONAL DATASET DETAILS -----")
+            print("\n----- ADDITIONAL DATASET DETAILS ----- (Not complete yet, can be added! )")
             if 'n_genes' not in adata.obs and 'n_counts' not in adata.obs:
                 print("Computing basic QC metrics...")
                 # Compute some basic stats
                 sc.pp.calculate_qc_metrics(adata, inplace=True)
-                
+
+            #this needs to be fixed 
             if 'n_genes' in adata.obs:
                 print(f"Genes per cell: min={adata.obs.n_genes.min()}, "
                       f"median={adata.obs.n_genes.median()}, "
                       f"max={adata.obs.n_genes.max()}")
                 
+            
+            #this too     
             if 'n_counts' in adata.obs:
                 print(f"UMI counts per cell: min={adata.obs.n_counts.min()}, "
                       f"median={adata.obs.n_counts.median()}, "
@@ -564,6 +507,7 @@ def main():
     if args.output_mode in ['file', 'both']:
         if args.html:
             # HTML report
+            from utils import generate_basic_html_report #import the custom html report function from utils.py
             html_file = output_dir / f"{base_name}_analysis.html"
             generate_basic_html_report(analysis_output, found_keys, adata, html_file)
             output = html_file

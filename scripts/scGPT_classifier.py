@@ -37,6 +37,8 @@ import anndata as ad
 import tqdm
 import scipy.sparse as sparse
 import scgpt as scg
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 #for classification 
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
@@ -63,6 +65,8 @@ try:
 except ImportError:
     FAISS_AVAILABLE = False
     print("Faiss not available. Install with: pip install faiss-cpu")
+
+##=== CLASSIFIER ===# 
 
 #class for the scGPT classifier 
 class scGPTAnnotator: 
@@ -122,10 +126,10 @@ class scGPTAnnotator:
         except Exception as e:
             return False, f"Error checking for embeddings: {e}"
     
-    def set_query_data(self, adata):
+    def set_query_data(self, adata): #this is the data that we are using to predict on. When not provided, we can set it here 
         self.query_adata = adata
 
-    def set_ref_data(self, adata):
+    def set_ref_data(self, adata): #this is the data that we are using to train on. When not provided, we can set it here. Can come from split query data
         self.ref_adata = adata
 
     # Improved Split Query/Reference Function
@@ -157,7 +161,7 @@ class scGPTAnnotator:
         # Different splitting methods
         if method == 'batch':
             # Split by keeping batches together
-            from sklearn.model_selection import GroupShuffleSplit
+            from sklearn.model_selection import GroupShuffleSplit #only import when this is needed 
             
             gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
             train_idx, test_idx = next(gss.split(adata.X, groups=adata.obs[batch_key]))
@@ -228,6 +232,14 @@ class scGPTAnnotator:
             if verbose:
                 print(f"Random split: {len(self.ref_adata)} reference cells, {len(self.query_adata)} query cells")
         
+        elif method == 'unannotated':
+            self.ref_adata = adata[~adata.obs['cell_type'].isin(["", "to be determined", "NaN", np.nan])].copy() # the ~makes it the opposite 
+            self.query_adata = adata[adata.obs['cell_type'].isin(["", "to be determined", "NaN", np.nan])].copy()
+
+            if verbose:
+                print(f"Unannotated split: {len(self.ref_adata)} reference cells, {len(self.query_adata)} query cells")
+                print(f"There are {len(self.query_adata)} cells with missing/invalid cell type annotations in the query set, and {len(self.ref_adata)} cells with valid cell type annotations in the reference set")
+        
         else:
             raise ValueError(f"Unknown split method: {method}. Use 'batch', 'kfold', or 'random'")
         
@@ -246,19 +258,19 @@ class scGPTAnnotator:
         print(f"Cell type column: {cell_type_col}")
         print(f"Batch key: {batch_key}")
         
-        # Initialize the classifier
+        # Initialize the classifier we will use: 
         print(f"Initializing classifier...")
         self.classifier = self.init_classifier(classifier_name, **kwargs)
         print(f"Initialized {type(self.classifier).__name__} classifier")
         
-        # Need reference data (can be done by splitting the query adata)
+        # Need reference data, if not provided, we split the query data based on the provided splitting method
         if self.ref_adata is None:
             print("ERROR: Reference data not set")
             raise ValueError("Reference data not set. Please call set_ref_data() first.")
         
         print(f"Reference data shape: {self.ref_adata.shape}")
         
-        # Check the column (this could go in the general check function)
+        # Check the column (this could go in the general check function) --> yeah move his ass to the check function, at least for the query data 
         if cell_type_col not in self.ref_adata.obs.columns:
             print(f"ERROR: Cell type column '{cell_type_col}' not found in reference data")
             print(f"Available columns: {list(self.ref_adata.obs.columns)}")
@@ -280,8 +292,8 @@ class scGPTAnnotator:
         print(f"Found {len(unique_labels)} unique cell types: {unique_labels[:5]}{'...' if len(unique_labels) > 5 else ''}")
         
         # Track metadata for later use
-        self.cell_type_col = cell_type_col
-        self.classifier_type = classifier_name
+        self.cell_type_col = cell_type_col #this is the column that we are using to predict on, and was extracted from the dataloader
+        self.classifier_type = classifier_name  #this is the type of classifier we are using
         
         # If batch_key is provided, use batch-aware training
         if batch_key and batch_key in self.ref_adata.obs:
@@ -400,15 +412,185 @@ class scGPTAnnotator:
             return y_pred
 
 
-    #run the whole thing 
-    def evaluate(self, adata): 
+    def evaluate_with_visuals(self, adata=None, y_pred=None, y_true=None, valid_classes=None, 
+                         cell_type_col=None, pred_cell_col='pred_cell_type', 
+                         figsize=(12, 10), cmap='viridis'):
+
+        from sklearn.metrics import classification_report, accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
+        
+        # Get the data we need depending on our inputs
+        if y_true is None or y_pred is None:
+            if adata is None:
+                adata = self.query_adata
+            
+            # Use provided column names or fall back to stored values
+            y_true_col = cell_type_col if cell_type_col is not None else self.cell_type_col
+            y_true = adata.obs[y_true_col]
+            y_pred = adata.obs[pred_cell_col]
+        
+        # Convert to pandas Series for consistent handling
+        y_true = pd.Series(y_true)
+        y_pred = pd.Series(y_pred)
+        valid_idx = ~(y_true.isna() | y_pred.isna())
+        y_true = y_true[valid_idx]
+        y_pred = y_pred[valid_idx]
+        
+        if valid_classes is None:
+            valid_classes = sorted(set(y_true) & set(y_pred))
+        
+        # Calculate metrics using the sklearn metrics library: 
+        accuracy = accuracy_score(y_true, y_pred)
+        precision = precision_score(y_true, y_pred, average='macro',labels=valid_classes, zero_division=0)
+        recall = recall_score(y_true, y_pred, average='macro', labels=valid_classes, zero_division=0)
+        f1_macro = f1_score(y_true, y_pred, average='macro', labels=valid_classes, zero_division=0)
+        f1_weighted = f1_score(y_true, y_pred, average='weighted', labels=valid_classes, zero_division=0)
+        
+        # Printsss
+        print(f"\nEvaluation Results:")
+        print(f"Samples: {len(y_true)}")
+        print(f"Classes: {len(valid_classes)}")
+        print(f"Accuracy: {accuracy:.4f}")
+        print(f"Macro F1: {f1_macro:.4f}")
+        print(f"Weighted F1: {f1_weighted:.4f}")
+        print(f"Precision: {precision:.4f}")
+        print(f"Recall: {recall:.4f}")
+        
+        
+        adata.uns["classifier_metrics"] = {
+            'accuracy': float(accuracy),
+            'f1_macro': float(f1_macro),
+            'f1_weighted': float(f1_weighted),
+            'precision': float(precision),
+            'recall': float(recall),
+            'num_classes': len(valid_classes),
+            'n_samples': len(y_true)
+        }
+        print(f"Metrics stored in adata.uns['classifier_metrics']")
+        
+
+        # visualisations down here:  This should be split later ! 
+        #1. confusion matrix
+        plt.figure(figsize=figsize)
+        cm = confusion_matrix(y_true, y_pred, labels=valid_classes)
+        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        
+        #customisable if needed
+        ax = sns.heatmap(cm_normalized, annot=False, cmap=cmap, xticklabels=valid_classes, yticklabels=valid_classes)
+        plt.title("Normalized Confusion Matrix")
+        plt.ylabel("True Label")
+        plt.xlabel("Predicted Label")
+        plt.xticks(rotation=90)
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.show()
+        
+        #2. Create UMAP visualization if available
+        if 'X_umap' in adata.obsm: #(it is for this one, otherwise we need to create it)
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+            
+            # Plot true labels
+            scatter1 = ax1.scatter(adata.obsm['X_umap'][:, 0], adata.obsm['X_umap'][:, 1], 
+                    c=adata.obs[cell_type_col].astype('category').cat.codes, 
+                    cmap=cmap, s=1, alpha=0.7)
+            ax1.set_title(f"UMAP - True Cell Types ({cell_type_col})")
+            
+            # Plot predicted labels
+            scatter2 = ax2.scatter(adata.obsm['X_umap'][:, 0], adata.obsm['X_umap'][:, 1], 
+                    c=adata.obs[pred_cell_col].astype('category').cat.codes, 
+                    cmap=cmap, s=1, alpha=0.7)
+            ax2.set_title(f"UMAP - Predicted Cell Types ({pred_cell_col})")
+            
+            plt.tight_layout()
+            plt.show()
+        else:
+            print("UMAP embeddings not found in adata.obsm['X_umap']. Skipping UMAP visualization.")
+        
+        #final results
+        results = {
+            'accuracy': accuracy,
+            'f1_macro': f1_macro,
+            'f1_weighted': f1_weighted,
+            'precision': precision,
+            'recall': recall,
+            'num_classes': len(valid_classes),
+            'n_samples': len(y_true)
+        }
+        
+        return valid_classes, adata, results
+
+    #save the results
+    def save_results(self, adata, results_path = None):
+        """Save results to a file."""
+        if adata is None:
+            print("ERROR: No data to save")
+            return
+        adata.write_h5ad(results_path)
+        print(f"Results saved to {results_path}")
+
+    def add_top_n_predictions(self, adata, n=3, pred_cell_col='pred_cell_type', cell_type_col='cell_type'):
+        """show of the top n (default 3) the prediction scores of the classifier for choosing the cell type, for better comparison
+        and interpretation of the results. Als compares with ground truth (if provided). Scores the probabilities of the other cells
+        in a probability matrix in adata.uns 
+        """	
+
+        # Get probability columns
+        prob_cols = [col for col in adata.obs.columns if col.startswith(f'{pred_cell_col}_prob_')]
+        
+        # Extract cell type names
+        cell_types = [col.replace(f'{pred_cell_col}_prob_', '') for col in prob_cols]
+        
+        # Create probability matrix
+        prob_matrix = np.zeros((adata.n_obs, len(cell_types)))
+        for i, col in enumerate(prob_cols):
+            prob_matrix[:, i] = adata.obs[col].values
+        
+        # Store full probability matrix in obsm
+        adata.obsm['cell_type_probabilities'] = prob_matrix
+        adata.uns['cell_type_probability_classes'] = cell_types
+        
+        # For each cell, add top N predictions to obs
+        for i in range(adata.n_obs):
+            # Get indices of top N probabilities
+            top_indices = np.argsort(prob_matrix[i])[-n:][::-1]
+            
+            # Add top N types and probabilities to obs
+            for rank, idx in enumerate(top_indices):
+                cell_type = cell_types[idx]
+                probability = prob_matrix[i, idx]
+                
+                # Add as new columns (rank+1 to start numbering at 1)
+                adata.obs.loc[adata.obs.index[i], f"top{rank+1}_type"] = cell_type
+                adata.obs.loc[adata.obs.index[i], f"top{rank+1}_prob"] = probability
+        
+        # Calculate if true cell type is in top N predictions
+        if cell_type_col in adata.obs.columns:
+            in_top_n = []
+            for i in range(adata.n_obs):
+                true_type = adata.obs[cell_type_col].iloc[i]
+                if pd.isna(true_type):
+                    in_top_n.append(False)
+                    continue
+                    
+                top_types = [adata.obs[f"top{j+1}_type"].iloc[i] for j in range(n)]
+                in_top_n.append(true_type in top_types)
+            
+            adata.obs['true_in_top_n'] = in_top_n
+            valid_idx = ~adata.obs[cell_type_col].isna()
+            top_n_accuracy = sum(in_top_n) / sum(valid_idx)
+            print(f"Top-{n} accuracy: {top_n_accuracy:.4f}")
+        
+        print(f"Full probability matrix stored in adata.obsm['cell_type_probabilities']")
+        print(f"Top {n} predictions stored in adata.obs columns")
+        
         return adata
+
+
+## === ENVIRONMENT and DATA LOADING === # 
     
 
-
-
-#setup directories 
-def setup_directories():
+#setup directories  
+def setup_directories(): #this could also be done in the utils, and imported. Also -- needs to be able to use
+    #relative and absolute paths. It's too narrow right now 
     """Set up necessary directories and return their paths
     
     TO BE ADDED:
@@ -424,8 +606,6 @@ def setup_directories():
     
     return repo_dir, data_dir, save_dir
 
-
-#load in data
 
 #ensure that there are embeddings -> in main? 
 def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
@@ -448,138 +628,95 @@ def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
     
     # Simple loading without any caching
     print(f"Loading data from {path}{' (subset)' if subset else ''}")
-    adata = _load_anndata(path, subset)
+    if subset is None:
+        adata = sc.read_h5ad(path)
+    else:
+        from utils import _load_anndata
+        adata = _load_anndata(path, subset)
     print(f"Data loaded in {time.time()-start_time:.2f}s with shape {adata.shape}")
     
     return adata
 
-def _load_anndata(path, subset=None):
-    """Internal function to load anndata with or without subsetting"""
-    if subset is None:
-        # Load full dataset
-        return sc.read_h5ad(path)
-    else:
-        # Load subset using h5py for memory efficiency
-        start_row = subset.get('start_row', 0)
-        n_rows = subset.get('n_rows', None)
-        obs_columns = subset.get('obs_columns', None)
-        
-        with h5py.File(path, "r") as f:
-            # Determine total rows
-            total_rows = len(f["X"]["indptr"]) - 1
-            if n_rows is None:
-                n_rows = total_rows - start_row
-                
-            print(f"Loading subset: rows {start_row}-{start_row+n_rows} of {total_rows}")
 
-            # Load components
-            data, indices, indptr = _load_csr_matrix_components(f, start_row, n_rows)
-            var_df = _load_var_metadata(f)
-            obs_df = _load_obs_metadata(f, start_row, n_rows, obs_columns)
+## === BENCHMARKING === # 
 
-            # Create sparse matrix
-            X_subset = sparse.csr_matrix(
-                (data, indices, indptr), shape=(n_rows, len(var_df))
-            )
-            
-            # Create the AnnData object
-            adata_subset = AnnData(X=X_subset, obs=obs_df, var=var_df)
-            
-            # Load obsm data including embeddings
-            if "obsm" in f:
-                for obsm_key in f["obsm"].keys():
-                    # Get the data for the selected rows
-                    if isinstance(f["obsm"][obsm_key], h5py.Dataset):
-                        obsm_data = f["obsm"][obsm_key][start_row:start_row+n_rows]
-                        adata_subset.obsm[obsm_key] = obsm_data
-                    else:
-                        print(f"Warning: Could not load {obsm_key} from obsm, not a Dataset")
-
-        return adata_subset
-
-def _load_csr_matrix_components(f, start_row, n_rows):
-    """Helper function to load CSR matrix components from h5ad file."""
-    indptr = f["X"]["indptr"][start_row : start_row + n_rows + 1]
-    start_idx, end_idx = indptr[0], indptr[-1]
-
-    data = f["X"]["data"][start_idx:end_idx]
-    indices = f["X"]["indices"][start_idx:end_idx]
-    indptr = indptr - start_idx  # Adjust indptr to start at 0
-
-    return data, indices, indptr
-
-
-def _load_var_metadata(f):
-    """Helper function to load variable (gene) metadata."""
-    var_dict = {}
-    for key in f["var"].keys():
-        item = f["var"][key]
-        if isinstance(item, h5py.Dataset):
-            var_dict[key] = item[:]
-        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
-            categories = [
-                cat.decode("utf-8") if isinstance(cat, bytes) else cat
-                for cat in item["categories"][:]
-            ]
-            codes = item["codes"][:]
-            var_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
-
-    var_df = pd.DataFrame(var_dict)
-
-    # Convert bytes to strings
-    for col in var_df.columns:
-        if var_df[col].dtype == object:
-            var_df[col] = var_df[col].apply(
-                lambda x: x.decode("utf-8") if isinstance(x, bytes) else x
-            )
-
-    if "feature_name" in var_df:
-        var_df.index = var_df["feature_name"]
-
-    return var_df
-
-
-def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
-    """Helper function to load observation (cell) metadata."""
-    selected_obs_keys = obs_columns if obs_columns else list(f["obs"].keys())
-    obs_dict = {}
-
-    for key in selected_obs_keys:
-        if key not in f["obs"]:
-            continue
-
-        item = f["obs"][key]
-        if isinstance(item, h5py.Dataset):
-            obs_dict[key] = item[start_row : start_row + n_rows]
-        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
-            categories = [
-                cat.decode("utf-8") if isinstance(cat, bytes) else cat
-                for cat in item["categories"][:]
-            ]
-            codes = item["codes"][start_row : start_row + n_rows]
-            obs_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
-
-    return pd.DataFrame(obs_dict)
-
-
-#save the results 
-
-#generate a report 
-
-#generate visualisations 
-    #dataframe of embeddings
-    #scatter plot of embeddings
-    #PCA plot of embeddings
-    #t-SNE plot of embeddings
-    #UMAP plot of embeddings
-    #heatmap of embeddings
-    #correlation matrix of embeddings
-    #heatmap of correlation matrix
-
-#Benchmarking 
 #   - compare with other classifiers
 #   - compare with other clustering methods
 #   - compare with other dimensionality reduction methods
+
+def test_existing_results(file_path, cell_type_col='cell_type', pred_cell_col='pred_cell_type'):
+    """
+    Test evaluation functions on existing results file without retraining.
+    
+    Args:
+        file_path: Path to existing results h5ad file
+        cell_type_col: Column name for true cell type
+        pred_cell_col: Column name for predicted cell type
+    """
+    print(f"Loading existing results from {file_path}")
+    import scanpy as sc
+    
+    # Load the existing results
+    adata = sc.read_h5ad(file_path)
+    print(f"Loaded data with shape {adata.shape}")
+    
+    # Create an annotator instance for using the evaluation methods
+    annotator = scGPTAnnotator(embedding_key='X_scGPT')
+    
+    # Track metadata for method compatibility
+    annotator.cell_type_col = cell_type_col
+    
+    # Add top N predictions analysis
+    adata = annotator.add_top_n_predictions(adata, n=3, 
+                                          pred_cell_col=pred_cell_col, 
+                                          cell_type_col=cell_type_col)
+    
+    # Evaluate with visualizations
+    valid_classes, adata, results = annotator.evaluate_with_visuals(
+        adata, 
+        cell_type_col=cell_type_col, 
+        pred_cell_col=pred_cell_col
+    )
+    
+    # Save the updated results with analysis
+    import os
+    from pathlib import Path
+    from datetime import datetime
+    
+    # Create an output filename based on the input
+    input_path = Path(file_path)
+    output_dir = input_path.parent
+    output_name = f"{input_path.stem}_analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
+    output_path = output_dir / output_name
+    
+    # Save results
+    adata.write_h5ad(output_path)
+    print(f"Updated results saved to {output_path}")
+    
+    return adata, results
+
+# Add this to the bottom of your script or call it directly
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Analyze existing scGPT classification results')
+    parser.add_argument('--results_file', type=str, required=True,
+                       help='Path to existing results h5ad file')
+    parser.add_argument('--cell_type_col', type=str, default='cell_type',
+                       help='Column name for true cell type')
+    parser.add_argument('--pred_cell_col', type=str, default='pred_cell_type',
+                       help='Column name for predicted cell type')
+    
+    args = parser.parse_args()
+    
+    # Just run the test function on existing results
+    test_existing_results(args.results_file, 
+                        cell_type_col=args.cell_type_col,
+                        pred_cell_col=args.pred_cell_col)
+
+
+## === REPORT === # 
+
 
 
 # === MAIN FUNCTION === # 
@@ -588,6 +725,9 @@ def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='scGPT data loading and metadata extraction')
+
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+
     parser.add_argument('--query_file', type=str, default='data/Derived_Embryoid_Bodies_all_embeds.h5ad', 
                        help='Path to input h5ad file')
     parser.add_argument('--ref_file', type=str, default=None,
@@ -614,138 +754,179 @@ def main():
     subset_group.add_argument('--obs_columns', type=str, nargs='+', default=None,
                        help='Space-separated list of observation columns to include')
     
+    # Arguments for analysis-only mode (new functionality)
+    analyze_parser = subparsers.add_parser('analyze', help='Analyze existing results without retraining')
+    analyze_parser.add_argument('--results_file', type=str, required=True,
+                        help='Path to existing results h5ad file')
+    analyze_parser.add_argument('--cell_type_col', type=str, default='cell_type',
+                        help='Column name for true cell type')
+    analyze_parser.add_argument('--pred_cell_col', type=str, default='pred_cell_type',
+                        help='Column name for predicted cell type')
+    
     args = parser.parse_args()
     
-    print("Running scGPT classifier...")
-    
-    # Setup directories
-    repo_dir, data_dir, save_dir = setup_directories()
-    
-    # Add repo to path if needed
-    if str(repo_dir) not in sys.path:
-        sys.path.append(str(repo_dir))
-    
-    # Create output directory
-    base_name = Path(args.query_file).stem
-    date_str = datetime.now().strftime("%Y%m%d")
-    
-    if args.testing:
-        output_dir = save_dir / "test_output"
-    else:
-        existing = [x for x in save_dir.iterdir() if x.is_dir() and x.name.startswith(f"{base_name}_{date_str}")]
-        number = len(existing) + 1
-        output_dir = save_dir / f"{base_name}_{date_str}_{number:02d}"
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Output directory: {output_dir}")
-    
-    # Load data with subsetting
-    subset = None
-    
-    # Handle --subset as a shortcut for --n_rows
-    if args.subset is not None:
-        args.n_rows = args.subset
-    
-    # Create subset dictionary if any subsetting options specified
-    if args.n_rows is not None or args.obs_columns is not None:
-        subset = {
-            'start_row': args.start_row,
-            'n_rows': args.n_rows,
-            'obs_columns': args.obs_columns
-        }
-        print(f"Loading data subset: start={args.start_row}, rows={args.n_rows or 'all'}")
-        if args.obs_columns:
-            print(f"Including only these obs columns: {', '.join(args.obs_columns)}")
-
-    #load metadata
-    metadata_path = output_dir / f"Derived_Embryoid_Bodies_metadata.json" #change this back this is just for testing
-    with open(metadata_path, 'r') as f:
-        metadata = json.load(f)
-
-    annotator = scGPTAnnotator(embedding_key='X_scGPT') #initialize the annotator
-    has_query_embeddings, query_message = annotator.check_embeddings(args.query_file) #check if the query data has embeddings
-    if not has_query_embeddings:
-        print(f"Error: {query_message}")
-        print("Cannot proceed without embeddings in query file.")
-        sys.exit(1)
-
-    print(f"Query file: {query_message}")
-    query_adata = load_h5ad(args.query_file, save_dir=output_dir, subset=subset, force_reload=args.force_reload) #load the query data
-    print(query_adata)
-    annotator.set_query_data(query_adata) #set the query data
-
-    # Get cell type and batch keys from metadata
-    cell_type_key = metadata['cell_type_keys'][0] if metadata.get('cell_type_keys') else None #to make sure it doesn't error
-    batch_key = metadata['batch_keys'][1] if metadata.get('batch_keys') else None #to make sure it doesn't error if it's not there 
-
-    print(f"Using cell type key: {cell_type_key}")
-    print(f"Using batch key: {batch_key}")
-
-    # Handle reference data - either from file or by splitting query
-    if args.ref_file is not None:
-        # External reference file provided
-        has_ref_embeddings, ref_message = annotator.check_embeddings(args.ref_file)
-        if not has_ref_embeddings:
-            print(f"Warning: Reference file doesn't have embeddings: {ref_message}")
-            print("Falling back to split from query data.")
-            
-            # Split query using batch key from metadata
-            if batch_key and batch_key in query_adata.obs:
-                print(f"Splitting query data using {batch_key} information")
-                print(f"Available batches: {query_adata.obs[batch_key].unique()}")
-                annotator.split_query_ref(query_adata, method='batch', batch_key=batch_key)
-            else:
-                print("No valid batch key. Using random split.")
-                annotator.split_query_ref(query_adata, method='random')
-        else:
-            # Reference file has embeddings, use it
-            print(f"Reference file: {ref_message}")
-            ref_adata = load_h5ad(args.ref_file, save_dir=output_dir, subset=subset, force_reload=args.force_reload)
-            annotator.set_ref_data(ref_adata)
-    else:
-        # No reference file provided, split query data
-        print("No reference file provided. Creating reference from query data.")
-        #there needs to be an extra check that the query data has cell_type information 
+    # If no command specified, default to 'train'
+    if args.command is None:
+        args.command = 'train'
         
-        # Use batch key from metadata
-        if batch_key and batch_key in query_adata.obs:
-            if len(query_adata.obs[batch_key].unique()) > 1:
-                print(f"Splitting query data using {batch_key} information")
-                print(f"Available batches: {query_adata.obs[batch_key].unique()}")
-                annotator.split_query_ref(query_adata, method='batch', batch_key=batch_key)
-            else:
-                print(f"Only one {batch_key} found. Using random split.")
-                annotator.split_query_ref(query_adata, method='random')
-        else:
-            print("No valid batch key in metadata. Using random split.")
-            annotator.split_query_ref(query_adata, method='random')
-
-    # Verify we have what we need
-    if annotator.query_adata is None:
-        print("Error: No query data available.")
-        sys.exit(1)
-    if annotator.ref_adata is None:
-        print("Error: No reference data available. Cannot proceed with classification.")
-        sys.exit(1)
-
-    print(f"Ready for cell type annotation using {cell_type_key} with {len(annotator.ref_adata)} reference cells and {len(annotator.query_adata)} query cells")
-    #name for predicted cell type column
-    pred_cell_type_key = 'pred_cell_type'
+    if args.command == 'analyze':
+        # Run the analysis-only workflow
+        print("Running analysis on existing results...")
+        test_existing_results(args.results_file, 
+                             cell_type_col=args.cell_type_col,
+                             pred_cell_col=args.pred_cell_col)
+    else:
+        # Run the full training and prediction workflow (your existing code)
+        print("Running scGPT classifier training and prediction pipeline...")
+        
+        # Your existing code goes here
+        # Setup directories
+        repo_dir, data_dir, save_dir = setup_directories()
     
-    annotator.train_classifier(classifier_name='randomforest', cell_type_col=cell_type_key, batch_key=batch_key)
-    predicted_adata = annotator.predict(annotator.query_adata, pred_cell_col=pred_cell_type_key, store_probs=True, return_adata=True)
-    print(predicted_adata.obs[[cell_type_key, pred_cell_type_key]].head())
+    
+    
+        # Setup directories
+        
+        # Add repo to path if needed
+        if str(repo_dir) not in sys.path:
+            sys.path.append(str(repo_dir))
+        
+        # Create output directory
+        base_name = Path(args.query_file).stem
+        date_str = datetime.now().strftime("%Y%m%d")
+        
+        if args.testing:
+            output_dir = save_dir / "test_output"
+        else:
+            existing = [x for x in save_dir.iterdir() if x.is_dir() and x.name.startswith(f"{base_name}_{date_str}")]
+            number = len(existing) + 1
+            output_dir = save_dir / f"{base_name}_{date_str}_{number:02d}"
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Output directory: {output_dir}")
+        
+        # Load data with subsetting
+        subset = None
+        
+        # Handle --subset as a shortcut for --n_rows
+        if args.subset is not None:
+            args.n_rows = args.subset
+        
+        # Create subset dictionary if any subsetting options specified
+        if args.n_rows is not None or args.obs_columns is not None:
+            subset = {
+                'start_row': args.start_row,
+                'n_rows': args.n_rows,
+                'obs_columns': args.obs_columns
+            }
+            print(f"Loading data subset: start={args.start_row}, rows={args.n_rows or 'all'}")
+            if args.obs_columns:
+                print(f"Including only these obs columns: {', '.join(args.obs_columns)}")
 
-    results_path = output_dir / f"Derived_Embryoid_Bodies_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
-    predicted_adata.write_h5ad(results_path)
-    print(f"Predicted results saved to {results_path}")
+        #load metadata
+        metadata_path = output_dir / f"Derived_Embryoid_Bodies_metadata.json" #change this back this is just for testing
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+
+        annotator = scGPTAnnotator(embedding_key='X_scGPT') #initialize the annotator
+        has_query_embeddings, query_message = annotator.check_embeddings(args.query_file) #check if the query data has embeddings
+        if not has_query_embeddings:
+            print(f"Error: {query_message}")
+            print("Cannot proceed without embeddings in query file.")
+            sys.exit(1)
+
+        print(f"Query file: {query_message}")
+        query_adata = load_h5ad(args.query_file, save_dir=output_dir, subset=subset, force_reload=args.force_reload) #load the query data
+        print(query_adata)
+        annotator.set_query_data(query_adata) #set the query data
+
+        # Get cell type and batch keys from metadata
+        cell_type_key = metadata['cell_type_keys'][0] if metadata.get('cell_type_keys') else None #to make sure it doesn't error
+        batch_key = metadata['batch_keys'][1] if metadata.get('batch_keys') else None #to make sure it doesn't error if it's not there 
+
+        print(f"Using cell type key: {cell_type_key}")
+        print(f"Using batch key: {batch_key}")
+
+        # Handle reference data - either from file or by splitting query
+        if args.ref_file is not None:
+            # External reference file provided
+            has_ref_embeddings, ref_message = annotator.check_embeddings(args.ref_file)
+            if not has_ref_embeddings:
+                print(f"Warning: Reference file doesn't have embeddings: {ref_message}")
+                print("Falling back to split from query data.")
+                
+                # Split query using batch key from metadata
+                if batch_key and batch_key in query_adata.obs:
+                    print(f"Splitting query data using {batch_key} information")
+                    print(f"Available batches: {query_adata.obs[batch_key].unique()}")
+                    annotator.split_query_ref(query_adata, method='batch', batch_key=batch_key)
+                else:
+                    print("No valid batch key. Using random split.")
+                    annotator.split_query_ref(query_adata, method='random')
+            else:
+                # Reference file has embeddings, use it
+                print(f"Reference file: {ref_message}")
+                ref_adata = load_h5ad(args.ref_file, save_dir=output_dir, subset=subset, force_reload=args.force_reload)
+                annotator.set_ref_data(ref_adata)
+        else:
+            # No reference file provided, split query data
+            print("No reference file provided. Creating reference from query data.")
+            #there needs to be an extra check that the query data has cell_type information 
+            
+            # Use batch key from metadata
+            if batch_key and batch_key in query_adata.obs:
+                if len(query_adata.obs[batch_key].unique()) > 1:
+                    print(f"Splitting query data using {batch_key} information")
+                    print(f"Available batches: {query_adata.obs[batch_key].unique()}")
+                    annotator.split_query_ref(query_adata, method='batch', batch_key=batch_key)
+                else:
+                    print(f"Only one {batch_key} found. Using random split.")
+                    annotator.split_query_ref(query_adata, method='random')
+            else:
+                print("No valid batch key in metadata. Using random split.")
+                annotator.split_query_ref(query_adata, method='random')
+
+        # Verify we have what we need
+        if annotator.query_adata is None:
+            print("Error: No query data available.")
+            sys.exit(1)
+        if annotator.ref_adata is None:
+            print("Error: No reference data available. Cannot proceed with classification.")
+            sys.exit(1)
+
+        print(f"Ready for cell type annotation using {cell_type_key} with {len(annotator.ref_adata)} reference cells and {len(annotator.query_adata)} query cells")
+        #name for predicted cell type column
+        pred_cell_type_key = 'pred_cell_type' #this could be done differently - better input or in config file
+
+        #train the classifier. Standard random forest classifier but can be changed to other classifiers
+        annotator.train_classifier(classifier_name='randomforest', cell_type_col=cell_type_key, batch_key=batch_key)
+
+        #predict the cell types
+        predicted_adata = annotator.predict(annotator.query_adata, pred_cell_col=pred_cell_type_key, store_probs=True, return_adata=True)
+        print(predicted_adata.obs[[cell_type_key, pred_cell_type_key]].head())
+        #evaluate the results
+        valid_classes, predicted_adata = annotator.evaluate(predicted_adata, y_true=cell_type_key, y_pred=pred_cell_type_key)
+
+        annotator.add_top_n_predictions(predicted_adata, n=3, pred_cell_col=pred_cell_type_key, cell_type_col=cell_type_key)
+
+        # Evaluate with visualizations
+        valid_classes, predicted_adata, results = annotator.evaluate_with_visuals(
+            predicted_adata, 
+            cell_type_col=cell_type_key, 
+            pred_cell_col=pred_cell_type_key
+        )
+
+
+
+        #save the results
+        results_path = output_dir / f"Derived_Embryoid_Bodies_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
+        annotator.save_results(predicted_adata, results_path)
+        print(f"Predicted results saved to {results_path}")
 
 
 
 
 if __name__ == "__main__":
     main()
-
-
 
 

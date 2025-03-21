@@ -438,14 +438,12 @@ def main():
     )
     print(f"Loaded dataset: {adata.shape[0]} cells × {adata.shape[1]} genes")
 
-    # Path to the metadata created by dataloader
+    # Path to the metadata created by scGPT_dataloader.py
     metadata_path = output_dir / f"{base_name}_metadata.json"
 
     if args.test_config:
-        # Path to the metadata created by dataloader
-        metadata_path = output_dir / f"{base_name}_metadata.json"
-        
-        print("\n🔍 TESTING CONFIGURATION WITHOUT EMBEDDING")
+        # Path to the metadata created by scGPT_dataloader.py        
+        print("\n TESTING CONFIGURATION WITHOUT EMBEDDING")
         test_embed_config(
             adata, 
             config_path="scripts/scGPT_embed_config.json",
@@ -460,6 +458,7 @@ def main():
             metadata_path=metadata_path if metadata_path.exists() else None
         )
         
+        #save to new file with {filename}_scGPT_embed_{date_str}.h5ad
         save_adata(adata, output_dir, args.input_file)
    
 
