@@ -915,9 +915,7 @@ def main():
             cell_type_col=cell_type_key, 
             pred_cell_col=pred_cell_type_key
         )
-
-
-
+        
         #save the results
         results_path = output_dir / f"Derived_Embryoid_Bodies_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
         annotator.save_results(predicted_adata, results_path)

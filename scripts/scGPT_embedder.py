@@ -37,20 +37,9 @@ import anndata as ad
 import tqdm
 import scipy.sparse as sparse
 import scgpt as scg
+from utils import _load_anndata
+from utils import setup_directories
 # === SETUP AND DATA LOADING ===
-
-def setup_directories():
-    """Set up necessary directories and return their paths"""
-    repo_dir = Path.cwd().absolute()
-    data_dir = repo_dir / "data"
-    save_dir = repo_dir / "save"
-    model_dir = repo_dir / "models"
-    
-    data_dir.mkdir(parents=True, exist_ok=True)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    
-    return repo_dir, data_dir, save_dir, model_dir
 
 def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
     """Load h5ad file with optional subsetting and caching
@@ -87,100 +76,6 @@ def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
     
     return adata
 
-def _load_anndata(path, subset=None):
-    """Internal function to load anndata with or without subsetting"""
-    if subset is None:
-        # Load full dataset
-        return sc.read_h5ad(path)
-    else:
-        # Load subset using h5py for memory efficiency
-        start_row = subset.get('start_row', 0)
-        n_rows = subset.get('n_rows', None)
-        obs_columns = subset.get('obs_columns', None)
-        
-        with h5py.File(path, "r") as f:
-            # Determine total rows
-            total_rows = len(f["X"]["indptr"]) - 1
-            if n_rows is None:
-                n_rows = total_rows - start_row
-                
-            print(f"Loading subset: rows {start_row}-{start_row+n_rows} of {total_rows}")
-
-            # Load components
-            data, indices, indptr = _load_csr_matrix_components(f, start_row, n_rows)
-            var_df = _load_var_metadata(f)
-            obs_df = _load_obs_metadata(f, start_row, n_rows, obs_columns)
-
-            # Create sparse matrix
-            X_subset = sparse.csr_matrix(
-                (data, indices, indptr), shape=(n_rows, len(var_df))
-            )
-
-        return AnnData(X=X_subset, obs=obs_df, var=var_df)
-
-def _load_csr_matrix_components(f, start_row, n_rows):
-    """Helper function to load CSR matrix components from h5ad file."""
-    indptr = f["X"]["indptr"][start_row : start_row + n_rows + 1]
-    start_idx, end_idx = indptr[0], indptr[-1]
-
-    data = f["X"]["data"][start_idx:end_idx]
-    indices = f["X"]["indices"][start_idx:end_idx]
-    indptr = indptr - start_idx  # Adjust indptr to start at 0
-
-    return data, indices, indptr
-
-
-def _load_var_metadata(f):
-    """Helper function to load variable (gene) metadata."""
-    var_dict = {}
-    for key in f["var"].keys():
-        item = f["var"][key]
-        if isinstance(item, h5py.Dataset):
-            var_dict[key] = item[:]
-        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
-            categories = [
-                cat.decode("utf-8") if isinstance(cat, bytes) else cat
-                for cat in item["categories"][:]
-            ]
-            codes = item["codes"][:]
-            var_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
-
-    var_df = pd.DataFrame(var_dict)
-
-    # Convert bytes to strings
-    for col in var_df.columns:
-        if var_df[col].dtype == object:
-            var_df[col] = var_df[col].apply(
-                lambda x: x.decode("utf-8") if isinstance(x, bytes) else x
-            )
-
-    if "feature_name" in var_df:
-        var_df.index = var_df["feature_name"]
-
-    return var_df
-
-
-def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
-    """Helper function to load observation (cell) metadata."""
-    selected_obs_keys = obs_columns if obs_columns else list(f["obs"].keys())
-    obs_dict = {}
-
-    for key in selected_obs_keys:
-        if key not in f["obs"]:
-            continue
-
-        item = f["obs"][key]
-        if isinstance(item, h5py.Dataset):
-            obs_dict[key] = item[start_row : start_row + n_rows]
-        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
-            categories = [
-                cat.decode("utf-8") if isinstance(cat, bytes) else cat
-                for cat in item["categories"][:]
-            ]
-            codes = item["codes"][start_row : start_row + n_rows]
-            obs_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
-
-    return pd.DataFrame(obs_dict)
 
 
 # === EMBEDDING FUNCTION ===
@@ -272,6 +167,10 @@ def embed_data(adata, config_path='scGPT_embed_config.json', metadata_path=None,
                 config["data"]["gene_col"] = metadata["gene_keys"][1]
                 print(f"Using detected gene column: {config['data']['gene_col']}")
             
+            if "model_dir" not in kwargs and metadata.get("directories", {}).get("model_dir"):
+                config["model"]["model_dir"] = metadata["directories"]["model_dir"]
+                print(f"Using detected model directory: {config['model']['model_dir']}")
+            
             # 2. Include important columns in obs_to_save
             obs_to_save = []
             if metadata.get("cell_type_keys"):
@@ -310,7 +209,7 @@ def embed_data(adata, config_path='scGPT_embed_config.json', metadata_path=None,
     print(f"Batch size: {data_params['batch_size']}")
     print(f"Device: {config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')}")
     
-    # Call scGPT embedding function
+    # Call scGPT embedding function THIS IS THE IMPORTANT PART THE REST IS JUST PREP
     embed_adata = scg.tasks.embed_data(
         adata,
         model_dir,

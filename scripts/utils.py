@@ -15,6 +15,59 @@ import h5py
 import scipy.sparse as sparse
 from anndata import AnnData
 
+def setup_directories(repo_path = None, data_path = None, save_path = None, model_path = None):
+    if repo_path is None:
+        repo_dir = Path.cwd().absolute()
+    else: 
+        repo_dir = Path(repo_path)
+        
+    """Set up necessary directories and return their paths"""
+    data_dir = Path(data_path).absolute() if data_path else (repo_dir / "data")
+    save_dir = Path(save_path).absolute() if save_path else (repo_dir / "save")
+    model_dir = Path(model_path).absolute() if model_path else (repo_dir / "models")
+    
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+        
+    
+    return repo_dir, data_dir, save_dir, model_dir
+
+def download_cellxgene_data(url, output_dir, file_name=None):
+    os.makedirs(output_dir, exist_ok=True)
+    if file_name is not None:
+        filename = file_name
+    else:
+        filename = url.split('/')[-1]
+    file_path = os.path.join(output_dir, filename)
+    if os.path.exists(file_path):
+        print(f"File {filename} already exists in {output_dir}")
+        return file_path
+    
+    try:
+        print(f"Downloading {filename} from {url} to {output_dir}")
+        response = requests.get(url, stream=True, timeout=30)
+        
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(file_path, 'wb') as file, tqdm(total=total_size, unit='B', unit_scale=True) as pbar:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:  # filter out keep-alive chunks
+                    file.write(chunk)
+                    pbar.update(len(chunk))
+        
+        print(f"Download completed: {file_path}")
+        return file_path
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error downloading file: {e}")
+        if os.path.exists(file_path):
+            os.remove(file_path)  # Remove partial download
+        return None
+
 
 
 def test_embed_config(adata=None, config_path=None, metadata_path=None):
