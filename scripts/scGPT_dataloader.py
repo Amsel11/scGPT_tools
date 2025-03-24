@@ -169,20 +169,6 @@ def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
 
     return pd.DataFrame(obs_dict)
 
-#two functions to cache and load for easier data loading: 
-def cache_adata(adata, output_dir, filename_base):
-    cache_path = output_dir / f"{filename_base}_cache.h5ad"
-    print(f"Caching AnnData object to {cache_path}")
-    adata.write(cache_path)
-    return cache_path
-
-def load_cached_adata(output_dir, filename_base):
-    cache_path = output_dir / f"{filename_base}_cache.h5ad"
-    if cache_path.exists():
-        print(f"Loading cached AnnData from {cache_path}")
-        return sc.read_h5ad(cache_path), True
-    return None, False
-
 # === ANNOTATION DETECTION AND ANALYSIS ===
 
 def get_examples_and_counts(series, n=5):
@@ -405,11 +391,11 @@ def main():
     parser = argparse.ArgumentParser(description='scGPT data loading and metadata extraction')
     parser.add_argument('--input_file', type=str, default='data/7af3a87a-c148-4988-a7cd-f33666ffd883.h5ad', 
                        help='Path to input h5ad file')
-    parser.add_argument('--reload', action='store_true', 
+    parser.add_argument('--force_reload', action='store_true', 
                        help='Force reload data and ignore cache')
     parser.add_argument('--testing', action='store_true', default=False, 
-                       help='Use test output directory')
-    parser.add_argument('--output_mode', type=str, choices=['terminal', 'file', 'both'],
+                       help='Use test output directory')                                 #change this one to True for testing, or in terminal
+    parser.add_argument('--output_mode', type=str, choices=['terminal', 'file', 'both'], #terminal: output to terminal, file: output to file, both: output to both
                        default='both', help='Where to output analysis information')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Print additional details about the dataset')
@@ -434,9 +420,9 @@ def main():
     # Setup directories
     repo_dir, data_dir, save_dir = setup_directories()
     directories = {
-        "repo_dir": str(repo_dir),
-        "data_dir": str(data_dir),
-        "save_dir": str(save_dir)
+        "repo_dir": repo_dir,
+        "data_dir": data_dir,
+        "save_dir": save_dir
     }
     
     # Add repo to path if needed
@@ -456,11 +442,14 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {output_dir}")
     
-    # Prepare subsetting options
+    # Load data with subsetting
     subset = None
+    
+    # Handle --subset as a shortcut for --n_rows
     if args.subset is not None:
         args.n_rows = args.subset
     
+    # Create subset dictionary if any subsetting options specified
     if args.n_rows is not None or args.obs_columns is not None:
         subset = {
             'start_row': args.start_row,
@@ -471,35 +460,14 @@ def main():
         if args.obs_columns:
             print(f"Including only these obs columns: {', '.join(args.obs_columns)}")
     
-    # Try to load cached data if not explicitly asked to reload
-    adata = None
-    base_name = Path(args.input_file).stem
-    
-    if not args.reload:
-        try:
-            cache_path = output_dir / f"{base_name}_cache.h5ad"
-            if cache_path.exists():
-                print("Loading data from cache...")
-                adata = sc.read_h5ad(cache_path)
-                print(f"Loaded dataset from cache: {adata.shape[0]} cells × {adata.shape[1]} genes")
-        except Exception as e:
-            print(f"Error loading cache: {e}")
-            adata = None
-    
-    # If no cache or reload requested, load from original file
-    if adata is None:
-        print("Loading data from original file...")
-        adata = load_h5ad(
-            args.input_file, 
-            save_dir=output_dir,
-            subset=subset
-        )
-        print(f"Loaded dataset from file: {adata.shape[0]} cells × {adata.shape[1]} genes")
-        
-        # Save for future use
-        cache_path = output_dir / f"{base_name}_cache.h5ad"
-        print(f"Saving data cache to: {cache_path}")
-        adata.write(cache_path)
+    # Call the unified loading function with optional subsetting
+    adata = load_h5ad(
+        args.input_file, 
+        save_dir=output_dir,  # Enable caching in the output directory
+        subset=subset,
+        force_reload=args.force_reload
+    )
+    print(f"Loaded dataset: {adata.shape[0]} cells × {adata.shape[1]} genes")
     
     # Capture annotation analysis output
     output_buffer = io.StringIO()
@@ -508,16 +476,20 @@ def main():
          
         # Additional verbose information if requested
         if args.verbose:
-            print("\n----- ADDITIONAL DATASET DETAILS -----")
+            print("\n----- ADDITIONAL DATASET DETAILS ----- (Not complete yet, can be added! )")
             if 'n_genes' not in adata.obs and 'n_counts' not in adata.obs:
                 print("Computing basic QC metrics...")
+                # Compute some basic stats
                 sc.pp.calculate_qc_metrics(adata, inplace=True)
 
+            #this needs to be fixed 
             if 'n_genes' in adata.obs:
                 print(f"Genes per cell: min={adata.obs.n_genes.min()}, "
                       f"median={adata.obs.n_genes.median()}, "
                       f"max={adata.obs.n_genes.max()}")
+                
             
+            #this too     
             if 'n_counts' in adata.obs:
                 print(f"UMI counts per cell: min={adata.obs.n_counts.min()}, "
                       f"median={adata.obs.n_counts.median()}, "
@@ -539,7 +511,7 @@ def main():
     if args.output_mode in ['file', 'both']:
         if args.html:
             # HTML report
-            from utils import generate_basic_html_report
+            from utils import generate_basic_html_report #import the custom html report function from utils.py
             html_file = output_dir / f"{base_name}_analysis.html"
             generate_basic_html_report(analysis_output, found_keys, adata, html_file)
             output = html_file
@@ -552,11 +524,10 @@ def main():
             print(f"Saved detailed analysis to {analysis_file}")
             output = analysis_file
 
-    # Save found keys as JSON metadata with directories included
+    # Save found keys as JSON metadata
     metadata_file = output_dir / f"{base_name}_metadata.json"
     found_keys['directories'] = directories
     save_metadata_json(found_keys, metadata_file)
-
     # Print summary
     print_summary(adata, found_keys, output_dir, metadata_file, output)
     
