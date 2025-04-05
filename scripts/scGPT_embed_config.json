@@ -1,0 +1,29 @@
+{
+  "model": {
+    "model_dir": "models/scGPT_human",
+    "checkpoint_name": "best_model.pt",
+    "vocab_file": "vocab.json",
+    "tokenizer_json": "tokenizer.json",
+    "embedding_dim": 512,
+    "num_heads": 8,
+    "num_layers": 12,
+    "max_seq_len": 1200
+  },
+  "data": {
+    "gene_col": "feature_name",
+    "batch_size": 64,
+    "max_genes": 2000,
+    "use_highly_variable": true,
+    "normalize_input": true,
+    "num_bins": 10
+  },
+  "embedding": {
+    "use_gpu": true,
+    "use_flash_attention": true,
+    "return_attention_weights": false,
+    "output_key": "X_scgpt",
+    "save_embeddings": true,
+    "embeddings_file": "scgpt_embeddings.h5ad"
+  },
+  "device": "cuda"
+}
