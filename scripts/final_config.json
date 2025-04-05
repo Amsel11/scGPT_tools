@@ -1,9 +1,0 @@
-{
-  "input_file": "test_data.csv",
-  "config_file": "processing_config.json",
-  "param1": 40,
-  "param2": "analyzed_default",
-  "stage": "finalize",
-  "finalized": true,
-  "finalization_timestamp": "2025-04-01T16:27:21.377947"
-}
