@@ -1,0 +1,45 @@
+﻿# Ignore everything
+*
+
+# Don't ignore my_src
+!my_src/
+!my_src/**
+
+# Don't ignore specific notebooks
+!notebooks/
+!notebooks/*full_analysis*.ipynb
+!notebooks/embedder.ipynb
+!notebooks/embedder_finetuned_stromal.ipynb
+
+# Don't ignore specific scripts
+!scripts/
+!scripts/*.py
+!scripts/*.json 
+
+# Files and folders to ignore
+**/__pycache__/
+*.pyc
+
+#folders
+scripts/data/
+scripts/save/
+scripts/models/
+
+
+# Explicitly ignore these files
+scripts/1m_cells_metadata.json
+scripts/auto_config.json
+scripts/cellxgene_dataloader.py
+scripts/classifier_results_test.ipynb
+scripts/config_tester.py
+scripts/final_config.json
+scripts/main.py
+scripts/pipeline.py
+scripts/testscript.py
+
+notebooks/Old_Trials/
+notebooks/save/
+notebooks/data/ 
+
+#folders
+scripts/testscript.py
