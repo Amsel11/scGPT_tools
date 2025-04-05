@@ -1,0 +1,423 @@
+{
+    "file_name": "1m_cells",
+    "file_path": "c:\\Users\\annel\\OneDrive\\Documenten\\Machine Learning\\scGPT\\scripts\\data\\1m_cells.h5ad",
+    "dimensions": {
+        "n_cells": 1136218,
+        "n_genes": 61759,
+        "n_nonzero": 3537524007,
+        "sparsity_percent": 94.96
+    },
+    "file_layers": [
+        "obs",
+        "var",
+        "uns",
+        "obsm",
+        "varm",
+        "obsp",
+        "varp"
+    ],
+    "found_keys_by_category": {
+        "cell_type_keys": [
+            "cell_type",
+            "cell_type_ontology_term_id"
+        ],
+        "gene_keys": [
+            "ensembl_id",
+            "ensg",
+            "feature_name"
+        ],
+        "batch_keys": [
+            "_scvi_batch",
+            "donor_assay",
+            "donor_id",
+            "donor_method",
+            "donor_tissue",
+            "donor_tissue_assay",
+            "replicate",
+            "sample_id",
+            "sample_number",
+            "scvi_leiden_donorassay_full"
+        ],
+        "hvg_keys": [],
+        "embedding_keys": [
+            "X_pca",
+            "X_umap",
+            "X_umap_scvi_full_donorassay",
+            "X_uncorrected_alltissues_umap",
+            "X_uncorrected_umap"
+        ],
+        "qc_keys": [
+            "n_genes_by_counts"
+        ]
+    },
+    "obs_keys": [
+        "10X_run",
+        "_index",
+        "_scvi_batch",
+        "_scvi_labels",
+        "ambient_removal",
+        "anatomical_position",
+        "assay",
+        "assay_ontology_term_id",
+        "broad_cell_class",
+        "cdna_plate",
+        "cdna_well",
+        "cell_type",
+        "cell_type_ontology_term_id",
+        "compartment",
+        "development_stage",
+        "development_stage_ontology_term_id",
+        "disease",
+        "disease_ontology_term_id",
+        "donor_assay",
+        "donor_id",
+        "donor_method",
+        "donor_tissue",
+        "donor_tissue_assay",
+        "ethnicity_original",
+        "free_annotation",
+        "is_primary_data",
+        "library_plate",
+        "manually_annotated",
+        "method",
+        "n_genes_by_counts",
+        "notes",
+        "observation_joinid",
+        "organism",
+        "organism_ontology_term_id",
+        "pct_counts_ercc",
+        "pct_counts_mt",
+        "published_2022",
+        "replicate",
+        "sample_id",
+        "sample_number",
+        "scvi_leiden_donorassay_full",
+        "self_reported_ethnicity",
+        "self_reported_ethnicity_ontology_term_id",
+        "sex",
+        "sex_ontology_term_id",
+        "suspension_type",
+        "tissue",
+        "tissue_in_publication",
+        "tissue_ontology_term_id",
+        "tissue_type",
+        "total_counts",
+        "total_counts_ercc",
+        "total_counts_mt"
+    ],
+    "var_keys": [
+        "ensembl_id",
+        "ensg",
+        "ercc",
+        "feature_biotype",
+        "feature_is_filtered",
+        "feature_length",
+        "feature_name",
+        "feature_reference",
+        "feature_type",
+        "genome",
+        "mean",
+        "mean_counts",
+        "mt",
+        "n_cells_by_counts",
+        "pct_dropout_by_counts",
+        "std",
+        "total_counts"
+    ],
+    "obsm_keys": [
+        "X_pca",
+        "X_scvi",
+        "X_umap",
+        "X_umap_scvi_full_donorassay",
+        "X_uncorrected_alltissues_umap",
+        "X_uncorrected_umap"
+    ],
+    "varm_keys": [
+        "PCs"
+    ],
+    "uns_keys": [
+        "_scvi_manager_uuid",
+        "_scvi_uuid",
+        "_training_mode",
+        "assay_ontology_term_id_colors",
+        "citation",
+        "compartment_colors",
+        "donor_id_colors",
+        "leiden",
+        "method_colors",
+        "neighbors",
+        "pca",
+        "schema_reference",
+        "schema_version",
+        "sex_ontology_term_id_colors",
+        "tissue_in_publication_colors",
+        "title",
+        "umap"
+    ],
+    "obsp_keys": [
+        "connectivities",
+        "distances"
+    ],
+    "varp_keys": [],
+    "found_obs_keys": [
+        "cell_type",
+        "cell_type_ontology_term_id",
+        "_scvi_batch",
+        "donor_assay",
+        "donor_id",
+        "donor_method",
+        "donor_tissue",
+        "donor_tissue_assay",
+        "replicate",
+        "sample_id",
+        "sample_number",
+        "scvi_leiden_donorassay_full",
+        "n_genes_by_counts"
+    ],
+    "found_var_keys": [
+        "ensembl_id",
+        "ensg",
+        "feature_name"
+    ],
+    "key_details": {
+        "cell_type": {
+            "name": "cell_type",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 180,
+            "sample_categories": [
+                "male germ cell",
+                "spermatocyte",
+                "spermatid",
+                "spermatogonium",
+                "oocyte"
+            ]
+        },
+        "cell_type_ontology_term_id": {
+            "name": "cell_type_ontology_term_id",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 180,
+            "sample_categories": [
+                "CL:0000015",
+                "CL:0000017",
+                "CL:0000018",
+                "CL:0000020",
+                "CL:0000023"
+            ]
+        },
+        "ensembl_id": {
+            "name": "ensembl_id",
+            "layer": "var",
+            "dtype": "object",
+            "is_categorical": false,
+            "sample_values": [
+                "b'ENSG00000000003.15'",
+                "b'ENSG00000000005.6'",
+                "b'ENSG00000000419.14'",
+                "b'ENSG00000000457.14'",
+                "b'ENSG00000000460.17'"
+            ]
+        },
+        "ensg": {
+            "name": "ensg",
+            "layer": "var",
+            "dtype": "object",
+            "is_categorical": false,
+            "sample_values": [
+                "b'ENSG00000000003'",
+                "b'ENSG00000000005'",
+                "b'ENSG00000000419'",
+                "b'ENSG00000000457'",
+                "b'ENSG00000000460'"
+            ]
+        },
+        "feature_name": {
+            "name": "feature_name",
+            "layer": "var",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 61759,
+            "sample_categories": [
+                "5S_rRNA_ENSG00000276861",
+                "5S_rRNA_ENSG00000277411",
+                "5S_rRNA_ENSG00000277488",
+                "5S_rRNA_ENSG00000285609",
+                "5S_rRNA_ENSG00000285626"
+            ]
+        },
+        "_scvi_batch": {
+            "name": "_scvi_batch",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 46,
+            "sample_categories": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+            ]
+        },
+        "donor_assay": {
+            "name": "donor_assay",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 46,
+            "sample_categories": [
+                "TSP1_10X_3Prime_v3.1",
+                "TSP1_SS2",
+                "TSP2_10X_3Prime_v3.1",
+                "TSP2_10X_5Prime_v2",
+                "TSP2_SS2"
+            ]
+        },
+        "donor_id": {
+            "name": "donor_id",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 24,
+            "sample_categories": [
+                "TSP1",
+                "TSP2",
+                "TSP3",
+                "TSP4",
+                "TSP5"
+            ]
+        },
+        "donor_method": {
+            "name": "donor_method",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 40,
+            "sample_categories": [
+                "TSP1_10X",
+                "TSP1_smartseq",
+                "TSP2_10X",
+                "TSP2_smartseq",
+                "TSP3_10X"
+            ]
+        },
+        "donor_tissue": {
+            "name": "donor_tissue",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 123,
+            "sample_categories": [
+                "TSP1_Bladder",
+                "TSP1_Blood",
+                "TSP1_Lung",
+                "TSP1_Muscle",
+                "TSP1_Pancreas"
+            ]
+        },
+        "donor_tissue_assay": {
+            "name": "donor_tissue_assay",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 196,
+            "sample_categories": [
+                "TSP1_Bladder_10X_3Prime_v3.1",
+                "TSP1_Bladder_SS2",
+                "TSP1_Blood_10X_3Prime_v3.1",
+                "TSP1_Blood_SS2",
+                "TSP1_Lung_10X_3Prime_v3.1"
+            ]
+        },
+        "replicate": {
+            "name": "replicate",
+            "layer": "obs",
+            "dtype": "int32",
+            "is_categorical": false,
+            "sample_values": [
+                1,
+                1,
+                1,
+                1,
+                1
+            ]
+        },
+        "sample_id": {
+            "name": "sample_id",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 658,
+            "sample_categories": [
+                "TSP1_Bladder_NA_10X3primev31_1_1",
+                "TSP1_Bladder_NA_10X3primev31_1_2",
+                "TSP1_Bladder_NA_10X3primev31_1_3",
+                "TSP1_Bladder_NA_SS2_B107821_B107821Blue_Endothelial",
+                "TSP1_Bladder_NA_SS2_B107822_B107822Blue_Stromal"
+            ]
+        },
+        "sample_number": {
+            "name": "sample_number",
+            "layer": "obs",
+            "dtype": "int32",
+            "is_categorical": false,
+            "sample_values": [
+                1,
+                1,
+                1,
+                1,
+                1
+            ]
+        },
+        "scvi_leiden_donorassay_full": {
+            "name": "scvi_leiden_donorassay_full",
+            "layer": "obs",
+            "dtype": "categorical",
+            "is_categorical": true,
+            "n_categories": 58,
+            "sample_categories": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+            ]
+        },
+        "X_pca": {
+            "name": "X_pca",
+            "layer": "obsm"
+        },
+        "X_umap": {
+            "name": "X_umap",
+            "layer": "obsm"
+        },
+        "X_umap_scvi_full_donorassay": {
+            "name": "X_umap_scvi_full_donorassay",
+            "layer": "obsm"
+        },
+        "X_uncorrected_alltissues_umap": {
+            "name": "X_uncorrected_alltissues_umap",
+            "layer": "obsm"
+        },
+        "X_uncorrected_umap": {
+            "name": "X_uncorrected_umap",
+            "layer": "obsm"
+        },
+        "n_genes_by_counts": {
+            "name": "n_genes_by_counts",
+            "layer": "obs",
+            "dtype": "int64",
+            "is_categorical": false,
+            "sample_values": [
+                1868,
+                1563,
+                1658,
+                1735,
+                1465
+            ]
+        }
+    }
+}
