@@ -251,8 +251,8 @@ class scGPTAnnotator:
         return self
 
     # train the classifier
-    def train_classifier(self, classifier_name, cell_type_col = 'cell_type', batch_key = None, **kwargs):
-        """Train a classifier on reference data."""
+    def train_classifier(self, classifier_name='randomforest', cell_type_col=None, batch_key=None, save_path=None):
+        """Train a classifier using reference data embeddings"""
         print(f"\n==== STARTING CLASSIFIER TRAINING ====")
         print(f"Classifier: {classifier_name}")
         print(f"Cell type column: {cell_type_col}")
@@ -260,7 +260,7 @@ class scGPTAnnotator:
         
         # Initialize the classifier we will use: 
         print(f"Initializing classifier...")
-        self.classifier = self.init_classifier(classifier_name, **kwargs)
+        self.classifier = self.init_classifier(classifier_name)
         print(f"Initialized {type(self.classifier).__name__} classifier")
         
         # Need reference data, if not provided, we split the query data based on the provided splitting method
@@ -357,6 +357,12 @@ class scGPTAnnotator:
         # Also add prints to init_classifier
         self.trained = True
         print(f"==== CLASSIFIER TRAINING FINISHED ====\n")
+        
+        # Save classifier if a path is provided
+        if save_path is not None:
+            print(f"Saving classifier to {save_path}")
+            self.save_classifier(save_path)
+        
         return self.classifier
 
     
@@ -410,7 +416,38 @@ class scGPTAnnotator:
             return pred_adata
         else:
             return y_pred
+    
+    def save_classifier(self, output_path):
+        """Save the trained classifier to disk."""
+        if not self.trained or not hasattr(self, 'classifier'):
+            print("ERROR: No trained classifier to save")
+            return False
+        
+        import pickle
+        import os
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Save the classifier
+        with open(output_path, 'wb') as f:
+            pickle.dump(self.classifier, f)
+        print(f"Classifier saved to {output_path}")
+        return True
 
+    def load_classifier(self, model_path):
+        """Load a previously trained classifier."""
+        import pickle
+        
+        try:
+            with open(model_path, 'rb') as f:
+                self.classifier = pickle.load(f)
+            self.trained = True
+            print(f"Loaded classifier from {model_path}")
+            return True
+        except Exception as e:
+            print(f"ERROR: Failed to load classifier: {e}")
+            return False
 
     def evaluate_with_visuals(self, adata=None, y_pred=None, y_true=None, valid_classes=None, 
                          cell_type_col=None, pred_cell_col='pred_cell_type', 

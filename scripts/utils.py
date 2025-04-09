@@ -155,50 +155,110 @@ def test_embed_config(adata=None, config_path=None, metadata_path=None):
 
 def build_config(args, metadata=None):
     """Build a centralized configuration from args and config file"""
-    # Start with a copy of args as a dictionary
-    config = vars(args).copy()
+    # Start with empty config
+    config = {}
     
-    # If a config file is specified, load and merge it
+    # If a config file is specified, load it as the base
     if args.config_file and os.path.exists(args.config_file):
         try:
             with open(args.config_file, 'r') as f:
-                file_config = json.load(f)
-                
-            # Update config with file values (except command-line overrides)
-            for key, value in file_config.items():
-                if key not in config or config[key] is None:
-                    config[key] = value
-                    print(f"Using config value for {key}: {value}")
+                config = json.load(f)
+                print(f"Loaded config from {args.config_file}")
         except Exception as e:
             print(f"Error loading config file: {e}")
-
-    # Update essential parameters from metadata if available
+    
+    # Update from metadata if available
     if metadata and not metadata.get('error'):
         # Set gene_col if not already specified
-        if not config['gene_col'] and metadata.get('found_keys_by_category', {}).get('gene_keys'):
+        if metadata.get('found_keys_by_category', {}).get('gene_keys'):
             gene_keys = metadata['found_keys_by_category']['gene_keys']
-            # Try common gene column names first
-            priority = ["feature_name", "gene_symbol", "gene_name", "ensembl_id"]
-            for key in priority:
-                if key in gene_keys:
-                    config['gene_col'] = key
-                    print(f"Using detected gene column: {key}")
-                    break
-            
-            # Fallback to first available
-            if not config['gene_col'] and gene_keys:
+            if not config.get('gene_col'):
                 config['gene_col'] = gene_keys[0]
                 print(f"Using detected gene column: {config['gene_col']}")
+            
+            # Add other options
+            if len(gene_keys) > 1:
+                other_options = [k for k in gene_keys if k != config.get('gene_col')]
+                if other_options:
+                    config['other_gene_col_options'] = ", ".join(other_options)
+                    print(f"Other gene column options: {config['other_gene_col_options']}")
         
         # Set cell_type_col for classification
-        if not config.get('cell_type_col') and metadata.get('found_keys_by_category', {}).get('cell_type_keys'):
-            config['cell_type_col'] = metadata['found_keys_by_category']['cell_type_keys'][0]
-            print(f"Using detected cell type column: {config['cell_type_col']}")
+        if metadata.get('found_keys_by_category', {}).get('cell_type_keys'):
+            cell_type_keys = metadata['found_keys_by_category']['cell_type_keys']
+            if not config.get('cell_type_col'):
+                config['cell_type_col'] = cell_type_keys[0]
+                print(f"Using detected cell type column: {config['cell_type_col']}")
+            
+            # Add other options
+            if len(cell_type_keys) > 1:
+                other_options = [k for k in cell_type_keys if k != config.get('cell_type_col')]
+                if other_options:
+                    config['other_cell_type_col_options'] = ", ".join(other_options)
+                    print(f"Other cell type column options: {config['other_cell_type_col_options']}")
         
         # Set batch_key for batch-aware operations
-        if not config.get('batch_key') and metadata.get('found_keys_by_category', {}).get('batch_keys'):
-            config['batch_key'] = metadata['found_keys_by_category']['batch_keys'][0]
-            print(f"Using detected batch column: {config['batch_key']}")
+        if metadata.get('found_keys_by_category', {}).get('batch_keys'):
+            batch_keys = metadata['found_keys_by_category']['batch_keys']
+            if not config.get('batch_key'):
+                config['batch_key'] = batch_keys[0]
+                print(f"Using detected batch column: {config['batch_key']}")
+            
+            # Add other options
+            if len(batch_keys) > 1:
+                other_options = [k for k in batch_keys if k != config.get('batch_key')]
+                if other_options:
+                    config['other_batch_key_options'] = ", ".join(other_options)
+                    print(f"Other batch column options: {config['other_batch_key_options']}")
+                    
+        # Add obs_keys and var_keys if available
+        if metadata.get('found_keys_by_category', {}).get('obs_keys'):
+            config['obs_keys'] = metadata['found_keys_by_category']['obs_keys']
+            print(f"Using detected obs keys: {config['obs_keys']}")
+            
+        if metadata.get('found_keys_by_category', {}).get('var_keys'):
+            config['var_keys'] = metadata['found_keys_by_category']['var_keys']
+            print(f"Using detected var keys: {config['var_keys']}")
+    
+    # Finally, override with command line arguments (highest priority)
+    args_dict = vars(args)
+    for key, value in args_dict.items():
+        if value is not None:  # Only override if explicitly provided
+            if key in ['gene_col', 'cell_type_col', 'batch_key']:
+                # Handle main keys
+                old_value = config.get(key)
+                print(f"Overriding {key} from '{old_value}' to '{value}'")
+                config[key] = value
+                # Update the corresponding "other_*" options
+                other_key = f'other_{key}_options'
+                if other_key in config:
+                    # Get current options as a list
+                    options = config[other_key].split(', ') if config[other_key] else []
+                    
+                    # Remove the new value from alternatives if it's there
+                    if value in options:
+                        options.remove(value)
+                    
+                    # Add the old value to alternatives if it exists and isn't already there
+                    if old_value and old_value not in options and old_value != value:
+                        options.append(old_value)
+                    
+                    # Update the options
+                    config[other_key] = ', '.join(options)
+                    print(f"Updated {other_key} to: {config[other_key]}")
+            
+            elif key.startswith('other_') and key in config:
+                # Handle direct changes to "other_*" options
+                # This would be used when directly specifying --other_gene_col_options, etc.
+                current_options = config[key].split(', ') if config[key] else []
+                if value not in current_options:
+                    current_options.append(value)
+                    config[key] = ', '.join(current_options)
+                print(f"Updated {key} to: {config[key]}")
+            
+            else:
+                # Standard override for all other keys
+                config[key] = value
 
     return config
 
@@ -294,14 +354,14 @@ def _load_anndata(path, subset=None):
         data, indices, indptr = _load_csr_matrix_components(f, start_row, n_rows)
         var_df = _load_var_metadata(f)
         obs_df = _load_obs_metadata(f, start_row, n_rows, obs_columns)
-
+        obsm_df = _load_obsm_data(f)
         # Create sparse matrix
         X_subset = sparse.csr_matrix(
             (data, indices, indptr), shape=(n_rows, len(var_df))
         )
         
         # Create the AnnData object
-        adata_subset = AnnData(X=X_subset, obs=obs_df, var=var_df)
+        adata_subset = AnnData(X=X_subset, obs=obs_df, var=var_df, obsm=obsm_df)
         
         # Load obsm data including embeddings
         if "obsm" in f:
@@ -594,13 +654,35 @@ class AnnDataChunker:
             shape=(n_rows, n_cols)
         )
 
-        # Subset the obs DataFrame for the requested rows
-        obs_subset = self._obs_df.iloc[start_row:start_row + n_rows]
+        # Check for empty rows and filter them out
+        row_sums = X_subset.sum(axis=1).A1  # Sum of each row
+        non_empty_rows = row_sums > 0
+        
+        if not all(non_empty_rows):
+            empty_count = (non_empty_rows == False).sum()
+            print(f"Warning: Found {empty_count} empty cells. Filtering them out.")
+            
+            # Filter X_subset to keep only non-empty rows
+            X_subset = X_subset[non_empty_rows]
+            
+            # Adjust subset of obs DataFrame for non-empty rows
+            obs_subset = self._obs_df.iloc[start_row:start_row + n_rows][non_empty_rows].copy()
+        else:
+            # Subset the obs DataFrame for the requested rows (all rows are non-empty)
+            obs_subset = self._obs_df.iloc[start_row:start_row + n_rows].copy()
         
         # Filter var DataFrame if needed
-        var_df = self._var_df.iloc[valid_indices] if valid_indices is not None else self._var_df
+        var_df = self._var_df.iloc[valid_indices].copy() if valid_indices is not None else self._var_df.copy()
 
-        return ad.AnnData(X=X_subset, obs=obs_subset, var=var_df)
+        # Load obsm data
+        obsm_dict = _load_obsm_data(self._file, start_row, n_rows)
+
+        # Create AnnData object and add obsm data
+        adata_subset = ad.AnnData(X=X_subset, obs=obs_subset, var=var_df)
+        for key, value in obsm_dict.items():
+            adata_subset.obsm[key] = value
+        
+        return adata_subset
 
     def load_torch_csr_matrix(self, start_row, n_rows, valid_indices=None):
         """
@@ -746,6 +828,90 @@ def _load_csr_matrix_components(f, start_row, n_rows, valid_indices=None):
         
     return data, indices, indptr
 
+def _load_obsm_data(file, start_row=None, n_rows=None):
+    """Load obsm data including embeddings from h5ad file with improved format detection."""
+    obsm_dict = {}
+    
+    if 'obsm' not in file:
+        print("No obsm group found in the file")
+        return obsm_dict
+    
+    print(f"Found obsm keys: {list(file['obsm'].keys())}")
+    
+    for key in file['obsm'].keys():
+        try:
+            item = file['obsm'][key]
+            print(f"Loading obsm['{key}'], type: {type(item)}")
+            
+            # Case 1: Direct dataset (simplest case)
+            if isinstance(item, h5py.Dataset):
+                print(f"  Direct dataset with shape: {item.shape}")
+                if start_row is not None and n_rows is not None:
+                    data = item[start_row:start_row+n_rows]
+                else:
+                    data = item[:]
+                obsm_dict[key] = data
+                print(f"  Loaded obsm['{key}'] as array with shape {data.shape}")
+                
+            # Case 2: Group (could be structured array or other complex type)
+            elif isinstance(item, h5py.Group):
+                print(f"  Group with keys: {list(item.keys())}")
+                print(f"  Attributes: {dict(item.attrs) if hasattr(item, 'attrs') else 'none'}")
+                
+                # Case 2.1: Group with _array_type attribute (AnnData 0.7+)
+                if '_array_type' in item.attrs:
+                    array_type = item.attrs['_array_type']
+                    print(f"  Found _array_type: {array_type}")
+                    
+                    if array_type == 'ndarray':
+                        # Regular ndarray with specific encoding
+                        if '0' in item:
+                            data = item['0'][:]
+                            if start_row is not None and n_rows is not None:
+                                data = data[start_row:start_row+n_rows]
+                            obsm_dict[key] = data
+                            print(f"  Loaded ndarray with shape {data.shape}")
+                        elif 'data' in item:
+                            data = item['data'][:]
+                            if start_row is not None and n_rows is not None:
+                                data = data[start_row:start_row+n_rows]
+                            obsm_dict[key] = data
+                            print(f"  Loaded ndarray from 'data' with shape {data.shape}")
+                            
+                # Case 2.2: Group with numeric keys (older AnnData format)
+                elif '0' in item:
+                    data = item['0'][:]
+                    if start_row is not None and n_rows is not None:
+                        data = data[start_row:start_row+n_rows]
+                    obsm_dict[key] = data
+                    print(f"  Loaded array from key '0' with shape {data.shape}")
+                
+                # Case 2.3: Group with data key
+                elif 'data' in item:
+                    data = item['data'][:]
+                    if start_row is not None and n_rows is not None:
+                        data = data[start_row:start_row+n_rows]
+                    obsm_dict[key] = data
+                    print(f"  Loaded array from 'data' with shape {data.shape}")
+                
+                # Case 2.4: Group with other format we don't recognize
+                else:
+                    print(f"  Unknown group format for {key}, attempting to load first available dataset")
+                    for subkey in item.keys():
+                        if isinstance(item[subkey], h5py.Dataset):
+                            data = item[subkey][:]
+                            if start_row is not None and n_rows is not None and len(data.shape) > 1:
+                                data = data[start_row:start_row+n_rows]
+                            obsm_dict[key] = data
+                            print(f"  Loaded from subkey '{subkey}' with shape {data.shape}")
+                            break
+        except Exception as e:
+            print(f"Warning: Could not load obsm['{key}']: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print(f"Successfully loaded {len(obsm_dict)} obsm arrays: {list(obsm_dict.keys())}")
+    return obsm_dict
 
 def _load_var_metadata(f):
     """Helper function to load variable (gene) metadata."""
@@ -800,3 +966,45 @@ def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
     return pd.DataFrame(obs_dict)
 
 
+def download_cellxgene_v2(output_dir=None, data_dir=None):
+    import boto3
+    from botocore.config import Config
+
+    bucket_name = "cdiam-h5ad-database"
+    prefix = "cellxgene_v2/"
+    #output_dir = data_dir / "cellxgene_v2"
+
+    # fetch two example files
+    s3_config = Config(
+        retries=dict(max_attempts=10),
+        max_pool_connections=50
+    )
+    s3_client = boto3.client('s3', config=s3_config)
+
+    # List first two objects directly
+    response = s3_client.list_objects_v2(
+        Bucket=bucket_name,
+        Prefix=prefix,
+        MaxKeys=2
+    )
+
+    # Create output directory if it doesn't exist
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Download the files
+    for obj in response.get('Contents', []):
+        file_name = obj['Key'].split('/')[-1]
+        output_path = output_dir / file_name
+        s3_client.download_file(bucket_name, obj['Key'], str(output_path))
+    
+    import os 
+    print (os.getcwd())
+
+    import os
+    import h5py
+
+    file_paths = [
+        output_dir / item['Key'].split('/')[-1]
+        for item in response['Contents']
+    ]
+    return file_paths
