@@ -1,0 +1,100 @@
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Logging to file: /root/scGPT_dir/scGPT/save/embeddings_20250409_10/scGPT_pipeline_20250409_234107.log
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Logging initialized
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Starting scGPT pipeline
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Initial config saved to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/initial_config.json
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Initial config: {'gene_col': 'feature_name', 'other_gene_col_options': 'gene_ids', 'cell_type_col': 'cell_type', 'other_cell_type_col_options': 'cell_type_ontology_term_id', 'batch_key': 'sample_id', 'other_batch_key_options': 'donor_id', 'query_file': '/root/scGPT_dir/scGPT/save/Derived Embryoid Bodies_20250409_12/embeddings.h5ad', 'config_file': '/root/scGPT_dir/scGPT/save/Derived Embryoid Bodies_20250409_12/pipeline_config.json', 'analysis': True, 'embed': True, 'classify': True, 'testing': False, 'disable_file_logging': False, 'model_dir': 'data/scGPT_Human', 'checkpoint_name': 'best_model.pt', 'embedding_dim': 512, 'num_heads': 8, 'num_layers': 12, 'max_seq_len': 1200, 'batch_size': 64, 'max_genes': 2000, 'use_highly_variable': False, 'download_data': True}
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Initial config values:
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   model_dir: data/scGPT_Human
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   gene_col: feature_name
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   batch_size: 64
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   device: None
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   cell_type_col: cell_type
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   batch_key: sample_id
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - === STEP 1: Running analysis ===
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Analyzing metadata for /root/scGPT_dir/scGPT/save/embeddings_20250409_10/0041b9c3-6a49-4bf7-8514-9bc7190067a7
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Loading data from /root/scGPT_dir/scGPT/save/embeddings_20250409_10/0041b9c3-6a49-4bf7-8514-9bc7190067a7
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 7 file layers
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 2 cell_type_keys: cell_type, cell_type_ontology_term_id
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 2 gene_keys: feature_name, gene_ids
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 1 batch_keys: donor_id
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 3 hvg_keys: dispersions, dispersions_norm, highly_variable
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 3 embedding_keys: X_pca, X_scvi_umap, X_umap
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 2 qc_keys: n_counts_UMIs, n_genes
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Saving metadata to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/0041b9c3-6a49-4bf7-8514-9bc7190067a7_metadata.json
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Metadata saved successfully to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/0041b9c3-6a49-4bf7-8514-9bc7190067a7_metadata.json
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Metadata analysis completed
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Analysis completed successfully
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Config after metadata analysis:
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   gene_col: feature_name
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   cell_type_col: cell_type
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   batch_key: sample_id
+2025-04-09 23:41:07 - scGPT_pipeline - INFO -   device: None
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Configuration saved to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/pipeline_config.json
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Config: {'gene_col': 'feature_name', 'other_gene_col_options': 'gene_ids', 'cell_type_col': 'cell_type', 'other_cell_type_col_options': 'cell_type_ontology_term_id', 'batch_key': 'sample_id', 'other_batch_key_options': 'donor_id', 'query_file': '/root/scGPT_dir/scGPT/save/Derived Embryoid Bodies_20250409_12/embeddings.h5ad', 'config_file': '/root/scGPT_dir/scGPT/save/Derived Embryoid Bodies_20250409_12/pipeline_config.json', 'analysis': True, 'embed': True, 'classify': True, 'testing': False, 'disable_file_logging': False, 'model_dir': 'data/scGPT_Human', 'checkpoint_name': 'best_model.pt', 'embedding_dim': 512, 'num_heads': 8, 'num_layers': 12, 'max_seq_len': 1200, 'batch_size': 64, 'max_genes': 2000, 'use_highly_variable': False, 'download_data': True}
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - Found 5 observation keys and 5 variable keys
+2025-04-09 23:41:07 - scGPT_pipeline - INFO - === STEP 2: Loading data ===
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - Loaded AnnData with 9424 cells and 58482 genes
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - Available obsm keys: ['X_pca', 'X_scvi', 'X_scvi_umap', 'X_umap']
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - First 5 rows of adata.obs:
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - 
+                                       assay_ontology_term_id donor_id anatomical_information  n_counts_UMIs  n_genes  ...   sex        tissue     self_reported_ethnicity  development_stage observation_joinid
+cell_id                                                                                                                ...                                                                                      
+AAACCCAAGAAGGTAG_TSP10_Skin_NA_10X_1_1            EFO:0009922    TSP10                    nan        10337.0     1513  ...  male  skin of body  Hispanic or Latin American  33-year-old stage         bVm!rEy$6%
+AAACCCAAGTGACCTT_TSP10_Skin_NA_10X_1_1            EFO:0009922    TSP10                    nan         7145.0     1474  ...  male  skin of body  Hispanic or Latin American  33-year-old stage         =j)l6)<of-
+AAACCCAAGTTATGGA_TSP10_Skin_NA_10X_1_1            EFO:0009922    TSP10                    nan         2695.0      883  ...  male  skin of body  Hispanic or Latin American  33-year-old stage         kdb_|T19}g
+AAACCCAGTAAGGCCA_TSP10_Skin_NA_10X_1_1            EFO:0009922    TSP10                    nan         2980.0      970  ...  male  skin of body  Hispanic or Latin American  33-year-old stage         %4(d(LAFVP
+AAACCCATCGTGCACG_TSP10_Skin_NA_10X_1_1            EFO:0009922    TSP10                    nan         4497.0     1080  ...  male  skin of body  Hispanic or Latin American  33-year-old stage         !MvyNXMXJ@
+
+[5 rows x 28 columns]
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - First 5 rows of adata.var:
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - 
+                 highly_variable         means  dispersions  dispersions_norm      mean       std  ... feature_name  feature_reference feature_biotype feature_length                        feature_type         gene_ids
+ENSG00000223972            False  6.398244e-05     0.835044         -0.573947  0.000039  0.005574  ...      DDX11L1     NCBITaxon:9606            gene            632  transcribed_unprocessed_pseudogene  ENSG00000223972
+ENSG00000227232            False  2.274395e-03     2.442280          0.533203  0.001080  0.031731  ...       WASH7P     NCBITaxon:9606            gene           1351              unprocessed_pseudogene  ENSG00000227232
+ENSG00000278267            False  6.175251e-05     1.295335         -0.256874  0.000033  0.005634  ...    MIR6859-1     NCBITaxon:9606            gene             68                               miRNA  ENSG00000278267
+ENSG00000243485            False  1.372886e-04     2.656352          0.680668  0.000048  0.008041  ...  MIR1302-2HG     NCBITaxon:9606            gene            623                              lncRNA  ENSG00000243485
+ENSG00000284332            False  1.000000e-12          NaN          0.000000  0.000000  1.000000  ...    MIR1302-2     NCBITaxon:9606            gene            138                               miRNA  ENSG00000284332
+
+[5 rows x 14 columns]
+2025-04-09 23:41:09 - scGPT_pipeline - INFO - === STEP 3: Running embedding ===
+2025-04-09 23:41:10 - scGPT_pipeline - INFO - Current configuration:
+2025-04-09 23:41:10 - scGPT_pipeline - INFO - Using GPU for embedding
+2025-04-09 23:41:55 - scGPT_pipeline - INFO - Saving embeddings to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/embeddings.h5ad
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Embeddings saved to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/embeddings.h5ad
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - === STEP 4: Running classification ===
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Using embedding key: X_scGPT
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - all keys in adata AnnData object with n_obs × n_vars = 9424 × 40474
+    obs: 'assay_ontology_term_id', 'donor_id', 'anatomical_information', 'n_counts_UMIs', 'n_genes', 'cell_ontology_class', 'free_annotation', 'manually_annotated', 'compartment', 'sex_ontology_term_id', 'disease_ontology_term_id', 'is_primary_data', 'organism_ontology_term_id', 'suspension_type', 'cell_type_ontology_term_id', 'tissue_ontology_term_id', 'development_stage_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'tissue_type', 'cell_type', 'assay', 'disease', 'organism', 'sex', 'tissue', 'self_reported_ethnicity', 'development_stage', 'observation_joinid'
+    var: 'highly_variable', 'means', 'dispersions', 'dispersions_norm', 'mean', 'std', 'ensembl_version', 'feature_is_filtered', 'feature_name', 'feature_reference', 'feature_biotype', 'feature_length', 'feature_type', 'gene_ids', 'id_in_vocab'
+    uns: 'X_type', '_scvi', '_training_mode', 'cdiam_description', 'cdiam_parsed_description', 'cell_ontology_class_colors', 'citation', 'dendrogram_cell_type_tissue', 'dendrogram_computational_compartment_assignment', 'dendrogram_consensus_prediction', 'dendrogram_tissue_cell_type', 'donor_id_colors', 'hvg', 'neighbors', 'schema_reference', 'schema_version', 'title', 'umap'
+    obsm: 'X_pca', 'X_scvi', 'X_scvi_umap', 'X_umap', 'X_scGPT'
+    layers: 'lognorm'
+    obsp: 'connectivities', 'distances'
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Using batch key from config: sample_id
+2025-04-09 23:41:56 - scGPT_pipeline - WARNING - Batch key 'sample_id' not found in data columns
+2025-04-09 23:41:56 - scGPT_pipeline - WARNING - Available columns: ['assay_ontology_term_id', 'donor_id', 'anatomical_information', 'n_counts_UMIs', 'n_genes', 'cell_ontology_class', 'free_annotation', 'manually_annotated', 'compartment', 'sex_ontology_term_id', 'disease_ontology_term_id', 'is_primary_data', 'organism_ontology_term_id', 'suspension_type', 'cell_type_ontology_term_id', 'tissue_ontology_term_id', 'development_stage_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'tissue_type', 'cell_type', 'assay', 'disease', 'organism', 'sex', 'tissue', 'self_reported_ethnicity', 'development_stage', 'observation_joinid']
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - No valid batch key found
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Using random split for reference/query
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Reference data shape: (1884, 40474)
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Query data shape: (7540, 40474)
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Using cell type key from config: cell_type
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Using cell type key: cell_type
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Using previously created split from query data
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Ready for cell type annotation using cell_type
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Reference data: 1884 cells with 23 unique cell types
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Query data: 7540 cells
+2025-04-09 23:41:56 - scGPT_pipeline - INFO - Training randomforest classifier
+2025-04-09 23:42:00 - scGPT_pipeline - INFO - Predicting cell types
+2025-04-09 23:42:00 - scGPT_pipeline - INFO - Prediction complete
+2025-04-09 23:42:00 - scGPT_pipeline - INFO - Sample of predictions:
+                                                                          cell_type     pred_cell_type
+cell_id                                                                                               
+CCCTAACGTTCTCACC_TSP14_Skin_Chest_10X_1_1                              stromal cell       stromal cell
+TTTACTGGTTCAAAGA_TSP10_Skin_NA_10X_1_1       CD8-positive, alpha-beta memory T cell   mature NK T cell
+ATTGGGTCAGCTGTAT_TSP14_Skin_Abdomen_10X_1_1                       regulatory T cell  regulatory T cell
+GCAGTTAAGCACAAAT_TSP10_Skin_NA_10X_1_1                                 stromal cell       stromal cell
+ATTCCTAGTTCAATCG_TSP10_Skin_NA_10X_1_1                                 stromal cell       stromal cell
+2025-04-09 23:42:00 - scGPT_pipeline - INFO - Evaluating prediction results
+2025-04-09 23:42:00 - scGPT_pipeline - INFO - Adding top 3 predictions
+2025-04-09 23:42:08 - scGPT_pipeline - INFO - Saving prediction results to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/embeddings_pred_results_20250409_234208.h5ad
+2025-04-09 23:42:09 - scGPT_pipeline - INFO - Predicted results saved to /root/scGPT_dir/scGPT/save/embeddings_20250409_10/embeddings_pred_results_20250409_234208.h5ad
