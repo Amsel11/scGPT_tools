@@ -38,136 +38,70 @@ import tqdm
 import scipy.sparse as sparse
 # === SETUP AND DATA LOADING ===
 
-def setup_directories():
-    """Set up necessary directories and return their paths"""
-    repo_dir = Path.cwd().absolute()
-    data_dir = repo_dir / "data"
-    save_dir = repo_dir / "save"
-    
-    data_dir.mkdir(parents=True, exist_ok=True)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    
-    return repo_dir, data_dir, save_dir
-
-def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
-    """Load h5ad file with optional subsetting (no caching)
+def split_query_ref_standalone(adata, method='batch', batch_key=None, test_size=0.2, 
+                             random_state=42, verbose=True):
+    """
+    Split a single AnnData object into query and reference datasets.
     
     Args:
-        path: Path to h5ad file
-        save_dir: Ignored parameter (kept for compatibility)
-        subset: Dict with keys 'start_row', 'n_rows', 'obs_columns' or None for full dataset
-        force_reload: Ignored parameter (kept for compatibility)
-    
-    Returns:
-        AnnData object
-    """
-    import time
-    from pathlib import Path
-    
-    # Start timing
-    start_time = time.time()
-    
-    # Simple loading without any caching
-    print(f"Loading data from {path}{' (subset)' if subset else ''}")
-    adata = _load_anndata(path, subset)
-    print(f"Data loaded in {time.time()-start_time:.2f}s with shape {adata.shape}")
-    
-    return adata
-
-def _load_anndata(path, subset=None):
-    """Internal function to load anndata with or without subsetting"""
-    if subset is None:
-        # Load full dataset
-        return sc.read_h5ad(path)
-    else:
-        # Load subset using h5py for memory efficiency
-        start_row = subset.get('start_row', 0)
-        n_rows = subset.get('n_rows', None)
-        obs_columns = subset.get('obs_columns', None)
+        adata: AnnData object to split
+        method: Splitting method ('batch', 'kfold', or 'random')
+        batch_key: Column in adata.obs containing batch information
+        test_size: Proportion of data to use as query
+        random_state: Random seed for reproducibility
+        verbose: Whether to print information about the split
         
-        with h5py.File(path, "r") as f:
-            # Determine total rows
-            total_rows = len(f["X"]["indptr"]) - 1
-            if n_rows is None:
-                n_rows = total_rows - start_row
-                
-            print(f"Loading subset: rows {start_row}-{start_row+n_rows} of {total_rows}")
-
-            # Load components
-            data, indices, indptr = _load_csr_matrix_components(f, start_row, n_rows)
-            var_df = _load_var_metadata(f)
-            obs_df = _load_obs_metadata(f, start_row, n_rows, obs_columns)
-
-            # Create sparse matrix
-            X_subset = sparse.csr_matrix(
-                (data, indices, indptr), shape=(n_rows, len(var_df))
-            )
-
-        return AnnData(X=X_subset, obs=obs_df, var=var_df)
-
-def _load_csr_matrix_components(f, start_row, n_rows):
-    """Helper function to load CSR matrix components from h5ad file."""
-    indptr = f["X"]["indptr"][start_row : start_row + n_rows + 1]
-    start_idx, end_idx = indptr[0], indptr[-1]
-
-    data = f["X"]["data"][start_idx:end_idx]
-    indices = f["X"]["indices"][start_idx:end_idx]
-    indptr = indptr - start_idx  # Adjust indptr to start at 0
-
-    return data, indices, indptr
-
-
-def _load_var_metadata(f):
-    """Helper function to load variable (gene) metadata."""
-    var_dict = {}
-    for key in f["var"].keys():
-        item = f["var"][key]
-        if isinstance(item, h5py.Dataset):
-            var_dict[key] = item[:]
-        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
-            categories = [
-                cat.decode("utf-8") if isinstance(cat, bytes) else cat
-                for cat in item["categories"][:]
-            ]
-            codes = item["codes"][:]
-            var_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
-
-    var_df = pd.DataFrame(var_dict)
-
-    # Convert bytes to strings
-    for col in var_df.columns:
-        if var_df[col].dtype == object:
-            var_df[col] = var_df[col].apply(
-                lambda x: x.decode("utf-8") if isinstance(x, bytes) else x
-            )
-
-    if "feature_name" in var_df:
-        var_df.index = var_df["feature_name"]
-
-    return var_df
-
-
-def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
-    """Helper function to load observation (cell) metadata."""
-    selected_obs_keys = obs_columns if obs_columns else list(f["obs"].keys())
-    obs_dict = {}
-
-    for key in selected_obs_keys:
-        if key not in f["obs"]:
-            continue
-
-        item = f["obs"][key]
-        if isinstance(item, h5py.Dataset):
-            obs_dict[key] = item[start_row : start_row + n_rows]
-        elif isinstance(item, h5py.Group) and "categories" in item and "codes" in item:
-            categories = [
-                cat.decode("utf-8") if isinstance(cat, bytes) else cat
-                for cat in item["categories"][:]
-            ]
-            codes = item["codes"][start_row : start_row + n_rows]
-            obs_dict[key] = pd.Categorical.from_codes(codes, categories=categories)
-
-    return pd.DataFrame(obs_dict)
+    Returns:
+        ref_adata, query_adata: Split datasets
+    """
+    # Verify batch_key exists if needed for 'batch' method
+    if method == 'batch':
+        if batch_key not in adata.obs:
+            raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
+        if verbose:
+            print(f"Found {len(adata.obs[batch_key].unique())} batches using key '{batch_key}'")
+    
+    # Different splitting methods
+    if method == 'batch':
+        # Split by keeping batches together
+        from sklearn.model_selection import GroupShuffleSplit
+        
+        gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+        train_idx, test_idx = next(gss.split(adata.X, groups=adata.obs[batch_key]))
+        
+        # Create the split datasets
+        ref_adata = adata[train_idx].copy()
+        query_adata = adata[test_idx].copy()
+        
+        # Report the batches in each set
+        if verbose:
+            query_batches = query_adata.obs[batch_key].unique()
+            ref_batches = ref_adata.obs[batch_key].unique()
+            print(f"Reference set: {len(ref_adata)} cells from {len(ref_batches)} batches")
+            print(f"Query set: {len(query_adata)} cells from {len(query_batches)} batches")
+            print(f"Query batches: {', '.join(map(str, query_batches))}")
+    
+    elif method == 'random':
+        # Simple random split ignoring batches
+        from sklearn.model_selection import train_test_split
+        
+        train_idx, test_idx = train_test_split(
+            range(adata.n_obs), 
+            test_size=test_size,
+            random_state=random_state
+        )
+        
+        ref_adata = adata[train_idx].copy()
+        query_adata = adata[test_idx].copy()
+        
+        if verbose:
+            print(f"Random split: {len(ref_adata)} reference cells, {len(query_adata)} query cells")
+    
+    else:
+        raise ValueError(f"Unsupported split method: {method}. Use 'batch' or 'random'")
+    
+    return ref_adata, query_adata
+  
 
 # === ANNOTATION DETECTION AND ANALYSIS ===
 
@@ -186,7 +120,7 @@ def analysis_meta(file_path, save=False, output_dir=None):
     logger = logging.getLogger('scGPT_pipeline')
     logger.info(f"Analyzing metadata for {file_path}")
     
-    # Define key category patterns
+    # Define key category patterns #THIS CAN BE EXTENDED OR IN THE FUTURE BE PUT IN A CONFIG FILE
     key_categories = { 
         'cell_type_keys': ['cell_type', 'celltype', 'cell.type', 'subtype', 'cell_type_label'],
         'gene_keys': ['feature_name', 'gene_symbol', 'gene_name', 'gene_id', 'ensg', 'ensembl_id'],
@@ -206,7 +140,7 @@ def analysis_meta(file_path, save=False, output_dir=None):
         'qc_keys': 'obs'
     }
 
-    # Initialize results
+    # Initialize results as a dictionary
     results = { 
         'file_name': Path(file_path).name.split('.')[0],
         'file_path': str(file_path),
@@ -609,19 +543,15 @@ def main():
     print("Running scGPT dataloader...")
     
     # Setup directories
-    repo_dir, data_dir, save_dir = setup_directories()
-    directories = {
-        "repo_dir": repo_dir,
-        "data_dir": data_dir,
-        "save_dir": save_dir
-    }
+    from utils import setup_directories
+    repo_dir, data_dir, save_dir, output_dir, model_dir, directories = setup_directories()
     
     # Add repo to path if needed
     if str(repo_dir) not in sys.path:
         sys.path.append(str(repo_dir))
     
     if args.testing:
-        output_dir = save_dir / "test_output"
+        output_dir = save_dir / "test_output" #you could also change this name if you like 
     else:
         # Create output directory
         base_name = Path(args.input_file).stem
@@ -633,7 +563,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {output_dir}")
     
-    # Load data with subsetting
+        # Load data with subsetting
     subset = None
     
     # Handle --subset as a shortcut for --n_rows

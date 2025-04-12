@@ -155,7 +155,6 @@ def test_embed_config(adata=None, config_path=None, metadata_path=None):
 
 def build_config(args, metadata=None):
     """Build a centralized configuration from args and config file"""
-    # Start with empty config
     config = {}
     
     # If a config file is specified, load it as the base
@@ -260,6 +259,60 @@ def build_config(args, metadata=None):
                 # Standard override for all other keys
                 config[key] = value
 
+    return config
+
+def build_model_config(args): 
+    config = vars(args).copy()
+
+    #this comes straight from their setup as they do the finetuning 
+    config.update({
+        "pad_token": "<pad>",
+        "special_tokens": [config.get("pad_token", "<pad>"), "<cls>", "<eoc>"],
+        "mask_value": "auto",
+        "max_seq_len": 3001,
+        "n_bins": config.get("n_bins", 51),
+        
+        # input/output representation
+        "input_style": "binned",
+        "output_style": "binned",
+        
+        # settings for training
+        "MLM": False,  # always on
+        "CLS": True,  # celltype classification objective
+        "ADV": False,  # Adversarial training for batch correction
+        "CCE": False,  # Contrastive cell embedding objective
+        "MVC": config.get("MVC", False),  # from args
+        "ECS": config.get("ecs_thres", 0) > 0,  # from args
+        "DAB": False,  
+        "INPUT_BATCH_LABELS": False,
+        "input_emb_style": "continuous",
+        "cell_emb_style": "cls",
+        "adv_E_delay_epochs": 0,
+        "adv_D_delay_epochs": 0,
+        "mvc_decoder_style": "inner product",
+        "ecs_threshold": config.get("ecs_thres", 0),
+        "dab_weight": config.get("dab_weight", 0.0),
+        
+        # optimizer settings
+        "lr_ADV": 1e-3,
+        "eval_batch_size": config.get("batch_size", 32),
+        "schedule_interval": 1,
+        
+        # model architecture settings
+        "fast_transformer_backend": "flash",
+        "embsize": config.get("layer_size", 128),
+        "d_hid": config.get("layer_size", 128),
+        
+        # logging
+        "log_interval": 100,
+        "do_eval_scib_metrics": True,
+    })
+
+    config["include_zero_gene"] = config.get("include_zero_gene", False)
+    config["explicit_zero_prob"] = config["MLM"] and config["include_zero_gene"]
+    config["do_sample_in_train"] = False and config["explicit_zero_prob"]
+    config["per_seq_batch_sample"] = False
+    
     return config
 
 if __name__ == "__main__":
