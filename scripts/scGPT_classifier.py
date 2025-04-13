@@ -77,11 +77,14 @@ class scGPTAnnotator:
         self.embedding_key = embedding_key 
         self.classifier = None #the type of  classifier
         self.trained = False #start with an untrained classifier
+        self.classifier_type = None  # Initialize here
+        self.cell_type_col = None
     
     def init_classifier(self, classifier_name, **kwargs):
         """Initialize a classifier by name."""
         print(f"Initializing classifier: {classifier_name}")
         classifier_name = classifier_name.lower()
+        self.classifier_type = classifier_name  # Set it here too
         
         # Map classifier names to their constructors
         classifier_map = {
@@ -101,6 +104,7 @@ class scGPTAnnotator:
         # Print message if using default
         if classifier_name not in classifier_map:
             print(f"Unknown classifier: {classifier_name}, using RandomForest instead")
+            self.classifier_type = 'randomforest'  # Update type if defaulting
         elif classifier_name == 'lightgbm' and not LIGHTGBM_AVAILABLE:
             print("LightGBM not available. Using RandomForest instead.")
         
@@ -258,8 +262,8 @@ class scGPTAnnotator:
         print(f"Cell type column: {cell_type_col}")
         print(f"Batch key: {batch_key}")
         
-        # Initialize the classifier we will use: 
-        print(f"Initializing classifier...")
+        # Initialize and store classifier type
+        self.classifier_type = classifier_name.lower()  # Set it here too
         self.classifier = self.init_classifier(classifier_name)
         print(f"Initialized {type(self.classifier).__name__} classifier")
         
@@ -293,7 +297,6 @@ class scGPTAnnotator:
         
         # Track metadata for later use
         self.cell_type_col = cell_type_col #this is the column that we are using to predict on, and was extracted from the dataloader
-        self.classifier_type = classifier_name  #this is the type of classifier we are using
         
         # If batch_key is provided, use batch-aware training
         if batch_key and batch_key in self.ref_adata.obs:
@@ -374,7 +377,9 @@ class scGPTAnnotator:
             print("ERROR: Classifier not trained")
             raise ValueError("Classifier must be trained before prediction")
         
-        print(f"Predicting with {self.classifier_type} classifier")
+        # Safely get classifier type
+        classifier_type = getattr(self, 'classifier_type', 'unknown')
+        print(f"Predicting with {classifier_type} classifier")
         
         pred_adata = adata if adata is not None else self.query_adata
         print(f"Prediction data shape: {pred_adata.shape}")
@@ -449,109 +454,120 @@ class scGPTAnnotator:
             print(f"ERROR: Failed to load classifier: {e}")
             return False
 
-    def evaluate_with_visuals(self, adata=None, y_pred=None, y_true=None, valid_classes=None, 
-                         cell_type_col=None, pred_cell_col='pred_cell_type', 
-                         figsize=(12, 10), cmap='viridis'):
-
-        from sklearn.metrics import classification_report, accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
+    def evaluate_with_visuals(self, adata, y_pred='pred_cell_type', y_true='cell_type'):
         
-        # Get the data we need depending on our inputs
-        if y_true is None or y_pred is None:
-            if adata is None:
-                adata = self.query_adata
+        # Make sure required columns exist
+        if y_true not in adata.obs.columns:
+            print(f"ERROR: True label column '{y_true}' not found in data")
+            return [], adata, {"error": f"Missing true label column: {y_true}"}
             
-            # Use provided column names or fall back to stored values
-            y_true_col = cell_type_col if cell_type_col is not None else self.cell_type_col
-            y_true = adata.obs[y_true_col]
-            y_pred = adata.obs[pred_cell_col]
+        if y_pred not in adata.obs.columns:
+            print(f"ERROR: Prediction column '{y_pred}' not found in data")
+            return [], adata, {"error": f"Missing prediction column: {y_pred}"}
         
-        # Convert to pandas Series for consistent handling
-        y_true = pd.Series(y_true)
-        y_pred = pd.Series(y_pred)
-        valid_idx = ~(y_true.isna() | y_pred.isna())
-        y_true = y_true[valid_idx]
-        y_pred = y_pred[valid_idx]
+        # Filter out rows with missing labels
+        valid_mask = ~adata.obs[y_true].isna() & ~adata.obs[y_pred].isna()
+        if valid_mask.sum() == 0:
+            print(f"ERROR: No valid data points with both true and predicted labels")
+            return [], adata, {"error": "No valid data points"}
         
-        if valid_classes is None:
-            valid_classes = sorted(set(y_true) & set(y_pred))
+        # Get valid samples for evaluation
+        y_true_values = adata.obs[y_true][valid_mask].values
+        y_pred_values = adata.obs[y_pred][valid_mask].values
         
-        # Calculate metrics using the sklearn metrics library: 
-        accuracy = accuracy_score(y_true, y_pred)
-        precision = precision_score(y_true, y_pred, average='macro',labels=valid_classes, zero_division=0)
-        recall = recall_score(y_true, y_pred, average='macro', labels=valid_classes, zero_division=0)
-        f1_macro = f1_score(y_true, y_pred, average='macro', labels=valid_classes, zero_division=0)
-        f1_weighted = f1_score(y_true, y_pred, average='weighted', labels=valid_classes, zero_division=0)
+        # Get unique classes that appear in both true and predicted labels
+        true_classes = set(y_true_values)
+        pred_classes = set(y_pred_values)
+        valid_classes = sorted(list(true_classes.intersection(pred_classes)))
         
-        # Printsss
-        print(f"\nEvaluation Results:")
-        print(f"Samples: {len(y_true)}")
-        print(f"Classes: {len(valid_classes)}")
-        print(f"Accuracy: {accuracy:.4f}")
-        print(f"Macro F1: {f1_macro:.4f}")
-        print(f"Weighted F1: {f1_weighted:.4f}")
-        print(f"Precision: {precision:.4f}")
-        print(f"Recall: {recall:.4f}")
+        # Debug information
+        print(f"True classes: {len(true_classes)}, Predicted classes: {len(pred_classes)}")
+        print(f"Common classes: {len(valid_classes)}")
         
+        if len(valid_classes) == 0:
+            print(f"WARNING: No overlapping cell types between true and predicted labels!")
+            print(f"True labels: {true_classes}")
+            print(f"Predicted labels: {pred_classes}")
+            # Return minimal results to avoid crashing
+            results = {
+                "samples": valid_mask.sum(),
+                "classes": 0,
+                "accuracy": 0.0,
+                "macro_f1": np.nan,
+                "weighted_f1": np.nan,
+                "precision": np.nan,
+                "recall": np.nan,
+                "error": "No overlapping cell types found"
+            }
+            
+            # Store metrics in adata
+            adata.uns['classifier_metrics'] = results
+            print(f"Metrics stored in adata.uns['classifier_metrics']")
+            
+            return [], adata, results
         
-        adata.uns["classifier_metrics"] = {
-            'accuracy': float(accuracy),
-            'f1_macro': float(f1_macro),
-            'f1_weighted': float(f1_weighted),
-            'precision': float(precision),
-            'recall': float(recall),
-            'num_classes': len(valid_classes),
-            'n_samples': len(y_true)
+        # Calculate metrics
+        # Use only valid rows for evaluation
+        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+        accuracy = accuracy_score(y_true_values, y_pred_values)
+        
+        try:
+            macro_f1 = f1_score(y_true_values, y_pred_values, average='macro', labels=valid_classes)
+            weighted_f1 = f1_score(y_true_values, y_pred_values, average='weighted', labels=valid_classes)
+            precision = precision_score(y_true_values, y_pred_values, average='weighted', labels=valid_classes)
+            recall = recall_score(y_true_values, y_pred_values, average='weighted', labels=valid_classes)
+        except Exception as e:
+            print(f"WARNING: Error calculating metrics: {e}")
+            macro_f1 = weighted_f1 = precision = recall = np.nan
+        
+        # Store metrics
+        results = {
+            "samples": valid_mask.sum(),
+            "classes": len(valid_classes),
+            "accuracy": float(accuracy),
+            "macro_f1": float(macro_f1) if not np.isnan(macro_f1) else None,
+            "weighted_f1": float(weighted_f1) if not np.isnan(weighted_f1) else None,
+            "precision": float(precision) if not np.isnan(precision) else None,
+            "recall": float(recall) if not np.isnan(recall) else None
         }
+        
+        # Print results
+        print("Evaluation Results:")
+        print(f"Samples: {results['samples']}")
+        print(f"Classes: {results['classes']}")
+        print(f"Accuracy: {results['accuracy']:.4f}")
+        print(f"Macro F1: {results['macro_f1'] if results['macro_f1'] is not None else 'nan'}")
+        print(f"Weighted F1: {results['weighted_f1'] if results['weighted_f1'] is not None else 'nan'}")
+        print(f"Precision: {results['precision'] if results['precision'] is not None else 'nan'}")
+        print(f"Recall: {results['recall'] if results['recall'] is not None else 'nan'}")
+        
+        # Store metrics in adata
+        adata.uns['classifier_metrics'] = results
         print(f"Metrics stored in adata.uns['classifier_metrics']")
         
-
-        # visualisations down here:  This should be split later ! 
-        #1. confusion matrix
-        plt.figure(figsize=figsize)
-        cm = confusion_matrix(y_true, y_pred, labels=valid_classes)
-        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-        
-        #customisable if needed
-        ax = sns.heatmap(cm_normalized, annot=False, cmap=cmap, xticklabels=valid_classes, yticklabels=valid_classes)
-        plt.title("Normalized Confusion Matrix")
-        plt.ylabel("True Label")
-        plt.xlabel("Predicted Label")
-        plt.xticks(rotation=90)
-        plt.yticks(rotation=0)
-        plt.tight_layout()
-        plt.show()
-        
-        #2. Create UMAP visualization if available
-        if 'X_umap' in adata.obsm: #(it is for this one, otherwise we need to create it)
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-            
-            # Plot true labels
-            scatter1 = ax1.scatter(adata.obsm['X_umap'][:, 0], adata.obsm['X_umap'][:, 1], 
-                    c=adata.obs[cell_type_col].astype('category').cat.codes, 
-                    cmap=cmap, s=1, alpha=0.7)
-            ax1.set_title(f"UMAP - True Cell Types ({cell_type_col})")
-            
-            # Plot predicted labels
-            scatter2 = ax2.scatter(adata.obsm['X_umap'][:, 0], adata.obsm['X_umap'][:, 1], 
-                    c=adata.obs[pred_cell_col].astype('category').cat.codes, 
-                    cmap=cmap, s=1, alpha=0.7)
-            ax2.set_title(f"UMAP - Predicted Cell Types ({pred_cell_col})")
-            
-            plt.tight_layout()
-            plt.show()
-        else:
-            print("UMAP embeddings not found in adata.obsm['X_umap']. Skipping UMAP visualization.")
-        
-        #final results
-        results = {
-            'accuracy': accuracy,
-            'f1_macro': f1_macro,
-            'f1_weighted': f1_weighted,
-            'precision': precision,
-            'recall': recall,
-            'num_classes': len(valid_classes),
-            'n_samples': len(y_true)
-        }
+        # Create confusion matrix if we have enough data and classes
+        if len(valid_classes) > 1 and valid_mask.sum() > 1:
+            try:
+                cm = confusion_matrix(y_true_values, y_pred_values, labels=valid_classes)
+                
+                # Create visualization
+                plt.figure(figsize=(12, 10))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                            xticklabels=valid_classes, yticklabels=valid_classes)
+                plt.xlabel('Predicted')
+                plt.ylabel('True')
+                plt.title('Confusion Matrix')
+                plt.tight_layout()
+                
+                # Save plot in adata
+                if 'figures' not in adata.uns:
+                    adata.uns['figures'] = {}
+                adata.uns['figures']['confusion_matrix'] = plt
+                
+                print("Confusion matrix created and stored in adata.uns['figures']['confusion_matrix']")
+                
+            except Exception as e:
+                print(f"WARNING: Error creating confusion matrix: {e}")
         
         return valid_classes, adata, results
 

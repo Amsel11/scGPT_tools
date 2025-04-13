@@ -63,34 +63,96 @@ def create_argparser():
         
         # Other settings 
         "output_dir": None,
-        "evaluate": False,
+
+        #classifier settings
         "classifier_type": "randomforest",
         "n_top_predictions": 5,
         "pred_cell_type_key": "pred_cell_type",
     }
 
-    parser = argparse.ArgumentParser(description='scGPT pipeline')
-    parser.add_argument('--query_file', default="data/Derived Embryoid Bodies.h5ad",
-                      help='Path to the query file')
-    parser.add_argument('--ref_file', default = None, help = 'Path to the reference file')
-    parser.add_argument('--config_file', default="scripts/scGPT_embed_config.json", 
-                      help='Path to the JSON config file')
-    parser.add_argument('--classifier_file', default=None, help='Path to the classifier file')
-    parser.add_argument('--analysis', action='store_true', default=False,
-                      help='Run analysis step')
-    parser.add_argument('--embed', action='store_true', default=False,
-                      help='Run embedding step')
-    parser.add_argument('--classify', action='store_true', default=False,
-                      help='Run classification step')
-    parser.add_argument('--evaluate', action='store_false', help='Path to the evaluation file')
-    parser.add_argument('--testing', action='store_true', default=False,
-                      help='Use testing directory')
-    parser.add_argument('--disable_file_logging', action='store_true', default=False,
-                      help='Disable file logging')
-    parser.add_argument('--download_data', action='store_true', default=False,
-                      help='Download data from cellxgene')
-
-    add_dict_to_argparser(parser, defaults)
+    parser = argparse.ArgumentParser(
+        description='scGPT Cell Type Annotation Pipeline',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter  # Show defaults in help
+    )
+    
+    # Create argument groups for better organization
+    io_group = parser.add_argument_group('Input/Output Options')
+    io_group.add_argument('--query_file', required=True,
+                       help='Path to the query h5ad file containing cells to analyze/annotate. Required - pipeline cannot run without input data.')
+    io_group.add_argument('--ref_file', default=None, 
+                       help='Path to reference h5ad file with annotated cells (optional)')
+    io_group.add_argument('--config_file', default="scripts/scGPT_embed_config.json", 
+                       help='Path to the JSON configuration file')
+    io_group.add_argument('--classifier_file', default=None, 
+                       help='Path to a pre-trained classifier file (optional)')
+    io_group.add_argument('--output_dir', default=None,
+                       help='Directory to save output files (default: auto-generated)')
+    
+    # Pipeline steps
+    steps_group = parser.add_argument_group('Pipeline Steps')
+    steps_group.add_argument('--analysis', action='store_true', default=False,
+                       help='Run analysis step (extract metadata and detect cell types/genes)')
+    steps_group.add_argument('--embed', action='store_true', default=False,
+                       help='Run embedding step (generate scGPT embeddings)')
+    steps_group.add_argument('--classify', action='store_true', default=False,
+                       help='Run classification step (predict cell types)')
+    steps_group.add_argument('--evaluate', action='store_true', default=True,
+                       help='Evaluate classification performance (when ground truth is available)')
+    steps_group.add_argument('--all', action='store_true', default=False,
+                       help='Run all pipeline steps (analysis, embed, classify, evaluate)')
+    
+    # Model settings
+    model_group = parser.add_argument_group('Model Settings')
+    model_group.add_argument('--model_dir', default=defaults["model_dir"],
+                       help='Directory containing the scGPT model files')
+    model_group.add_argument('--checkpoint_name', default=defaults["checkpoint_name"],
+                       help='Name of the model checkpoint file')
+    model_group.add_argument('--embedding_dim', type=int, default=defaults["embedding_dim"],
+                       help='Dimension of the scGPT embeddings')
+    model_group.add_argument('--device', default=None,
+                       help='Device to use (cuda or cpu, default: auto-detect)')
+    
+    # Data settings
+    data_group = parser.add_argument_group('Data Settings')
+    data_group.add_argument('--gene_col', default=defaults["gene_col"],
+                       help='Column name in adata.var for gene identifiers (auto-detected if not specified)')
+    data_group.add_argument('--cell_type_col', default=defaults["cell_type_col"],
+                       help='Column name in adata.obs for cell type annotations (auto-detected if not specified)')
+    data_group.add_argument('--batch_key', default=defaults["batch_key"],
+                       help='Column name in adata.obs for batch annotations (auto-detected if not specified)')
+    data_group.add_argument('--batch_size', type=int, default=defaults["batch_size"],
+                       help='Batch size for model inference')
+    data_group.add_argument('--max_genes', type=int, default=defaults["max_genes"],
+                       help='Maximum number of genes to use')
+    
+    # Classification settings
+    class_group = parser.add_argument_group('Classification Settings')
+    class_group.add_argument('--classifier_type', default=defaults["classifier_type"],
+                       choices=['randomforest', 'knn', 'svm', 'lightgbm'],
+                       help='Type of classifier to use for cell type prediction')
+    class_group.add_argument('--n_top_predictions', type=int, default=defaults["n_top_predictions"],
+                       help='Number of top predictions to include in results')
+    class_group.add_argument('--pred_cell_type_key', default=defaults["pred_cell_type_key"],
+                       help='Column name to use for predicted cell types in output')
+    
+    # Other options
+    other_group = parser.add_argument_group('Other Options')
+    other_group.add_argument('--testing', action='store_true', default=False,
+                       help='Run in testing mode (uses test output directory)')
+    other_group.add_argument('--disable_file_logging', action='store_true', default=False,
+                       help='Disable logging to file')
+    other_group.add_argument('--download_data', action='store_true', default=False,
+                       help='Download example data from cellxgene')
+    other_group.add_argument('--force_continue', action='store_true', default=False,
+                       help='Force continue pipeline even if errors occur in earlier steps')
+    
+    # Add the remaining default values
+    remaining_defaults = {k: v for k, v in defaults.items() 
+                         if k not in ['model_dir', 'checkpoint_name', 'embedding_dim',
+                                     'gene_col', 'batch_size', 'max_genes', 'cell_type_col',
+                                     'batch_key', 'output_dir', 'classifier_type',
+                                     'n_top_predictions', 'pred_cell_type_key']}
+    add_dict_to_argparser(parser, remaining_defaults)
 
     return parser
 
@@ -125,7 +187,7 @@ def fix_reserved_column_names(adata):
                 print(f"Warning: Renaming reserved column name '{reserved}' to '{new_name}' in obs DataFrame")
                 adata.obs = adata.obs.rename(columns={reserved: new_name})
 
-    return results
+    return adata
 
 
 def main():
@@ -170,6 +232,13 @@ def main():
         query_file = file_paths[0]
         
         logging.info(f"Using Cellxgene V2: query_file: {query_file}")
+    
+    if args.all:
+        args.analysis = True
+        args.embed = True
+        args.classify = True
+        args.evaluate = True
+
 
     #setup logging
     from utils import setup_logging
@@ -192,7 +261,28 @@ def main():
     logger.info(f"  cell_type_col: {config.get('cell_type_col')}")
     logger.info(f"  batch_key: {config.get('batch_key')}")
 
+    # Show CLI banner
+    print("\n" + "="*80)
+    print(f"scGPT Cell Type Annotation Pipeline (v0.1.0)")
+    print("="*80)
+    print(f"Query file: {args.query_file}")
+    if args.ref_file:
+        print(f"Reference file: {args.ref_file}")
+    print(f"Output directory: {output_dir}")
+    steps = []
+    if args.analysis:
+        steps.append("analysis")
+    if args.embed:
+        steps.append("embed")
+    if args.classify:
+        steps.append("classify")
+    if args.evaluate:
+        steps.append("evaluate")
+    print(f"Steps: {' '.join(steps)}")
+    print("-"*80 + "\n")
+
     Metadata = None
+
 
     # Step 1: Analysis (if enabled)
     if args.analysis:
@@ -464,7 +554,6 @@ def main():
             # We already split the data above, so just log that
             logger.info("Using previously created split from query data")
 
-        # Verify we have what we need
         if annotator.query_adata is None:
             logger.error("No query data available.")
             return 1
@@ -472,7 +561,6 @@ def main():
             logger.error("No reference data available. Cannot proceed with classification.")
             return 1
 
-        # Check if cell type key exists in reference data
         if cell_type_key not in annotator.ref_adata.obs.columns:
             logger.error(f"Cell type key '{cell_type_key}' not found in reference data")
             logger.error(f"Available columns: {list(annotator.ref_adata.obs.columns)}")
@@ -482,12 +570,11 @@ def main():
         logger.info(f"Reference data: {len(annotator.ref_adata)} cells with {len(annotator.ref_adata.obs[cell_type_key].unique())} unique cell types")
         logger.info(f"Query data: {len(annotator.query_adata)} cells")
         
-        # Name for predicted cell type column
         pred_cell_type_key = config.get('pred_cell_type_key', 'pred_cell_type')
         
         # Train the classifier
-        classifier_type = config.get('classifier_type', 'knn')
-        logger.info(f"Training {classifier_type} classifier")
+        classifier_type = config.get('classifier_type', 'knn') #also in the defaults
+        logger.info(f"Training {classifier_type} classifier") #this is the type of classifier we are using
         annotator.train_classifier(classifier_name=classifier_type, cell_type_col=cell_type_key, batch_key=batch_key)
         annotator.save_classifier(output_dir / f"{classifier_type}_classifier_{base_name}.pkl")
 
@@ -515,6 +602,36 @@ def main():
         logger.info(f"Saving prediction results to {results_path}")
         annotator.save_results(predicted_adata, results_path)
         logger.info(f"Predicted results saved to {results_path}")
+
+    # After loading adata, add these debug statements:
+    logger.info("=== Data Content Debug ===")
+    logger.info(f"Columns in adata.obs: {list(adata.obs.columns)}")
+    if cell_type_key in adata.obs.columns:
+        logger.info(f"Unique values in {cell_type_key}: {adata.obs[cell_type_key].unique()}")
+        logger.info(f"Number of cells with cell type: {adata.obs[cell_type_key].notna().sum()}")
+    else:
+        logger.error(f"Cell type column '{cell_type_key}' not found in data!")
+        logger.info("Available columns are:")
+        for col in adata.obs.columns:
+            logger.info(f"  - {col}: {adata.obs[col].nunique()} unique values")
+
+    # Before classification, add:
+    if args.classify:
+        logger.info("=== Classification Debug ===")
+        logger.info(f"Reference data columns: {list(annotator.ref_adata.obs.columns)}")
+        logger.info(f"Query data columns: {list(annotator.query_adata.obs.columns)}")
+        if cell_type_key:
+            if cell_type_key in annotator.ref_adata.obs.columns:
+                logger.info(f"Reference unique cell types: {annotator.ref_adata.obs[cell_type_key].unique()}")
+            else:
+                logger.error(f"Cell type key '{cell_type_key}' not in reference data!")
+
+    # Show completion message
+    print("\n" + "="*80)
+    print(f"Pipeline completed successfully!")
+    if args.classify and 'results_path' in locals():
+        print(f"Results saved to: {results_path}")
+    print("="*80 + "\n")
 
         
         

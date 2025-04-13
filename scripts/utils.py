@@ -23,19 +23,21 @@ import torch
 
 def setup_directories(repo_path = None, data_path = None, save_path = None, model_path = None):
     if repo_path is None:
-        repo_dir = Path.cwd().absolute()
-    else: 
-        repo_dir = Path(repo_path)
+        script_path = Path(__file__).resolve().parent #make it absolute 
+        script_dir = script_path.parent
+
+        if script_dir.name == "scripts":
+            repo_dir = script_dir.parent
+        else:
+            repo_dir = script_dir
         
     """Set up necessary directories and return their paths"""
-    data_dir = Path(data_path).absolute() if data_path else (repo_dir / "data")
-    save_dir = Path(save_path).absolute() if save_path else (repo_dir / "save")
-    model_dir = Path(model_path).absolute() if model_path else (repo_dir / "models")
+    data_dir = Path(data_path).resolve() if data_path else (repo_dir / "data")
+    save_dir = Path(save_path).resolve() if save_path else (repo_dir / "save")
+    model_dir = Path(model_path).resolve() if model_path else (repo_dir / "models")
     
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    model_dir.mkdir(parents=True, exist_ok=True)
+    for directory in [repo_dir, data_dir, save_dir, model_dir]:
+        directory.mkdir(parents=True, exist_ok=True)
         
     directories = {
         "repo_dir": str(repo_dir),
