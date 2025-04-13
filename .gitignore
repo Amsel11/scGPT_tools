@@ -1,15 +1,9 @@
 ﻿# Ignore everything
 *
 
-
 # Don't ignore .gitignore itself
 !.gitignore
 
-# Don't ignore my_src
-!my_src/
-!my_src/**
-
-# ...rest of your .gitignore content...
 # Don't ignore my_src
 !my_src/
 !my_src/**
@@ -20,11 +14,9 @@
 !notebooks/embedder.ipynb
 !notebooks/embedder_finetuned_stromal.ipynb
 
-!scGPT-annotator
-!scGPT-annotator/scripts
-!scGPT-annotator/models
-!scGPT-annotator/data
-
+# Don't ignore scGPT-annotator and its contents
+!scGPT-annotator/
+!scGPT-annotator/**
 
 # Don't ignore specific scripts
 !scripts/
@@ -35,11 +27,13 @@
 **/__pycache__/
 *.pyc
 
-#folders
+# Ignore specific subdirectories
 scripts/data/
 scripts/save/
 scripts/models/
-
+scGPT-annotator/data/
+scGPT-annotator/save/
+scGPT-annotator/models/
 
 # Explicitly ignore these files
 scripts/1m_cells_metadata.json
@@ -54,7 +48,4 @@ scripts/testscript.py
 
 notebooks/Old_Trials/
 notebooks/save/
-notebooks/data/ 
-
-#folders
-scripts/testscript.py
+notebooks/data/
