@@ -63,6 +63,10 @@ def create_argparser():
         
         # Other settings 
         "output_dir": None,
+        "evaluate": False,
+        "classifier_type": "randomforest",
+        "n_top_predictions": 5,
+        "pred_cell_type_key": "pred_cell_type",
     }
 
     parser = argparse.ArgumentParser(description='scGPT pipeline')
@@ -78,6 +82,7 @@ def create_argparser():
                       help='Run embedding step')
     parser.add_argument('--classify', action='store_true', default=False,
                       help='Run classification step')
+    parser.add_argument('--evaluate', action='store_false', help='Path to the evaluation file')
     parser.add_argument('--testing', action='store_true', default=False,
                       help='Use testing directory')
     parser.add_argument('--disable_file_logging', action='store_true', default=False,
@@ -119,8 +124,9 @@ def fix_reserved_column_names(adata):
                 new_name = f"renamed_{reserved}"
                 print(f"Warning: Renaming reserved column name '{reserved}' to '{new_name}' in obs DataFrame")
                 adata.obs = adata.obs.rename(columns={reserved: new_name})
-    
-    return adata
+
+    return results
+
 
 def main():
     #setup parsing
@@ -480,7 +486,7 @@ def main():
         pred_cell_type_key = config.get('pred_cell_type_key', 'pred_cell_type')
         
         # Train the classifier
-        classifier_type = config.get('classifier_type', 'randomforest')
+        classifier_type = config.get('classifier_type', 'knn')
         logger.info(f"Training {classifier_type} classifier")
         annotator.train_classifier(classifier_name=classifier_type, cell_type_col=cell_type_key, batch_key=batch_key)
         annotator.save_classifier(output_dir / f"{classifier_type}_classifier_{base_name}.pkl")
@@ -494,12 +500,13 @@ def main():
         
         # Evaluate the results
         logger.info("Evaluating prediction results")
-        #valid_classes, predicted_adata = annotator.evaluate(predicted_adata, y_true=cell_type_key, y_pred=pred_cell_type_key)
+        valid_classes, predicted_adata, results = annotator.evaluate_with_visuals(predicted_adata, y_pred=pred_cell_type_key, y_true=cell_type_key)
 
         # Add top N predictions
         n_predictions = config.get('n_top_predictions', 3)
         logger.info(f"Adding top {n_predictions} predictions")
         annotator.add_top_n_predictions(predicted_adata, n=n_predictions, pred_cell_col=pred_cell_type_key, cell_type_col=cell_type_key)
+
 
  
         # Save the results

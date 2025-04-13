@@ -1,0 +1,16 @@
+2025-04-12 19:30:59,856 - root - INFO - Starting scGPT pipeline
+2025-04-12 19:30:59,857 - root - INFO - Initial config saved to /root/scGPT_dir/scGPT/scGPT_tools/scripts/save/Derived Embryoid Bodies_20250412_02/initial_config.json
+2025-04-12 19:30:59,857 - root - INFO - Initial config: {'query_file': 'data/Derived Embryoid Bodies.h5ad', 'config_file': 'scripts/scGPT_embed_config.json', 'analysis': False, 'embed': False, 'classify': False, 'evaluate': True, 'testing': False, 'disable_file_logging': False, 'download_data': False, 'model_dir': 'data/scGPT_Human', 'checkpoint_name': 'best_model.pt', 'embedding_dim': 512, 'num_heads': 8, 'num_layers': 12, 'max_seq_len': 1200, 'batch_size': 64, 'max_genes': 2000, 'use_highly_variable': False, 'classifier_type': 'randomforest', 'n_top_predictions': 5, 'pred_cell_type_key': 'pred_cell_type'}
+2025-04-12 19:30:59,857 - root - INFO - Initial config values:
+2025-04-12 19:30:59,857 - root - INFO -   model_dir: data/scGPT_Human
+2025-04-12 19:30:59,857 - root - INFO -   gene_col: None
+2025-04-12 19:30:59,857 - root - INFO -   batch_size: 64
+2025-04-12 19:30:59,857 - root - INFO -   device: None
+2025-04-12 19:30:59,857 - root - INFO -   cell_type_col: None
+2025-04-12 19:30:59,857 - root - INFO -   batch_key: None
+2025-04-12 19:30:59,857 - root - INFO - Analysis step skipped (not enabled)
+2025-04-12 19:30:59,857 - root - INFO - Important observation keys: []
+2025-04-12 19:30:59,857 - root - INFO - Important variable keys: []
+2025-04-12 19:30:59,857 - root - WARNING - Metadata available from config file - will load those columns
+2025-04-12 19:30:59,858 - root - INFO - === STEP 2: Loading data ===
+2025-04-12 19:30:59,858 - root - ERROR - Error loading AnnData: [Errno 2] Unable to synchronously open file (unable to open file: name = 'data/Derived Embryoid Bodies.h5ad', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0)

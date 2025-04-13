@@ -494,12 +494,20 @@ def _load_obs_metadata(f, start_row, n_rows, obs_columns=None):
 
 
 def add_dict_to_argparser(parser, default_dict):
+    """
+    Add a dictionary of arguments to an ArgumentParser object.
+    """
     for k, v in default_dict.items():
         v_type = type(v)
         if v is None:
             v_type = str
         elif isinstance(v, bool):
             v_type = str2bool
+            
+        # Check if argument already exists
+        if any(action.dest == k for action in parser._actions):
+            continue
+            
         parser.add_argument(f"--{k}", default=v, type=v_type)
 
 def str2bool(v):
@@ -519,47 +527,43 @@ def save_metadata_json(found_keys, output_path):
         json.dump(found_keys, f, indent=4, ensure_ascii=False)
     return output_path
 
-def setup_logging(log_dir, log_file=None, log_level=logging.INFO, disable_file_logging=False):
-    """Setup logging for scGPT scripts"""
-    # Ensure log directory exists (this will be default the output directory)
-    log_dir = Path(log_dir).absolute()
-    log_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create formatter
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    logger = logging.getLogger('scGPT_pipeline')
-    logger.setLevel(log_level)
-
-    logger.propagate = False
-    
-    # Remove existing handlers if any
-    if logger.handlers:
-        logger.handlers = []
-    
-    # Create file handler ONLY if file logging is not disabled
-    if not disable_file_logging:
-        # Create log filename if not provided
-        if log_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_file = f"scGPT_pipeline_{timestamp}.log"
-        
-        log_path = log_dir / log_file
-        file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        logger.info(f"Logging to file: {log_path}")
+def setup_logging(log_dir=None, disable_file_logging=False):
+    """Setup logging configuration"""
+    if log_dir is None:
+        # Use a default directory if none provided
+        log_dir = Path("./logs")
     else:
-        logger.info("File logging disabled")
+        log_dir = Path(log_dir)
     
-    # Create console handler (always added)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
+    # Create the directory if it doesn't exist and file logging is enabled
+    if not disable_file_logging:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Setup file handler
+        log_file = log_dir / f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(file_formatter)
+    
+    # Setup console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    console_handler.setFormatter(console_formatter)
+    
+    # Setup root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # Remove any existing handlers
+    logger.handlers = []
+    
+    # Add handlers
     logger.addHandler(console_handler)
+    if not disable_file_logging:
+        logger.addHandler(file_handler)
     
-    logger.info("Logging initialized")
     return logger
     
 class AnnDataChunker:

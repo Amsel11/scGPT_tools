@@ -1,0 +1,23 @@
+{
+    "query_file": "data/Derived Embryoid Bodies.h5ad",
+    "config_file": "scripts/scGPT_embed_config.json",
+    "analysis": false,
+    "embed": false,
+    "classify": false,
+    "evaluate": true,
+    "testing": false,
+    "disable_file_logging": false,
+    "download_data": false,
+    "model_dir": "data/scGPT_Human",
+    "checkpoint_name": "best_model.pt",
+    "embedding_dim": 512,
+    "num_heads": 8,
+    "num_layers": 12,
+    "max_seq_len": 1200,
+    "batch_size": 64,
+    "max_genes": 2000,
+    "use_highly_variable": false,
+    "classifier_type": "randomforest",
+    "n_top_predictions": 5,
+    "pred_cell_type_key": "pred_cell_type"
+}

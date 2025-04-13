@@ -82,9 +82,8 @@ def create_argument_parser():
         do_eval=False,
         
         # Path settings
-        load_model="scripts/models/scGPT_Human",
+        load_model="/root/scGPT_dir/scGPT/data/scGPT_Human",
         output_dir=None,  # Will be set automatically if None
-        ref_file=None,    # Reference file for comparison
         
         # Data processing
         mask_ratio=0.15,
@@ -93,6 +92,7 @@ def create_argument_parser():
         n_bins=51,
         data_is_raw=False,
         filter_gene_by_counts=False,
+        preprocess=False,
         
         # Input/output representation
         input_style="binned",  # "normed_raw", "log1p", or "binned"
@@ -149,14 +149,21 @@ def create_argument_parser():
         log_interval=100,  # Log every N steps
         save_eval_interval=1,  # Save and evaluate every N epochs
         do_eval_scib_metrics=True,  # Whether to evaluate scIB metrics
+        disable_file_logging=True,
     )
 
     parser = argparse.ArgumentParser(description='Continual Pretraining for scGPT')
-    parser.add_argument('--query_file', default='data/Derived_Embryoid_Bodies.h5ad', 
-                        help='Path to the query dataset file')
-    parser.add_argument('--ref_file', default='data/Derived_Embryoid_Bodies.h5ad', 
+    parser.add_argument('--query_file', default='/root/scGPT_dir/scGPT/data/Derived Embryoid Bodies.h5ad', 
+                        help='Path to the query dataset file'),
+    parser.add_argument('--ref_file', default=None, 
                         help='Path to the reference dataset file')
     parser.add_argument('--config_file', default=None, help="Config file with info")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./scGPT_continual_training",  # Add a default value
+        help="Directory to save model checkpoints and logs"
+    )
 
     add_dict_to_argparser(parser, defaults)
     
@@ -573,7 +580,7 @@ def train(model, loader, config, epoch):
     for batch, batch_data in enumerate(loader):
         input_gene_ids = batch_data["gene_ids"].to(device)
         input_values = batch_data["values"].to(device)
-        target_values = batch_data["target_values"].to(device)
+        input_target_values = batch_data["target_values"].to(device)
         batch_labels = batch_data["batch_labels"].to(device)
         celltype_labels = batch_data["celltype_labels"].to(device)
 
@@ -598,7 +605,7 @@ def train(model, loader, config, epoch):
             # MLM loss
             if config['MLM']:
                 loss_mse = criterion(
-                    output_dict["mlm_output"], target_values, masked_positions
+                    output_dict["mlm_output"], input_target_values, masked_positions
                 )
                 loss = loss + loss_mse
                 metrics_to_log = {"train/mse": loss_mse.item()}
@@ -607,7 +614,7 @@ def train(model, loader, config, epoch):
             # Zero probability loss (for sparse data)
             if config['explicit_zero_prob']:
                 loss_zero_log_prob = config['criterion_neg_log_bernoulli'](
-                    output_dict["mlm_zero_probs"], target_values, masked_positions
+                    output_dict["mlm_zero_probs"], input_target_values, masked_positions
                 )
                 loss = loss + loss_zero_log_prob
                 metrics_to_log.update({"train/nzlp": loss_zero_log_prob.item()})
@@ -637,7 +644,7 @@ def train(model, loader, config, epoch):
             # Masked value prediction loss
             if config['MVC']:
                 loss_mvc = criterion(
-                    output_dict["mvc_output"], target_values, masked_positions
+                    output_dict["mvc_output"], input_target_values, masked_positions
                 )
                 loss = loss + loss_mvc
                 metrics_to_log.update({"train/mvc": loss_mvc.item()})
@@ -646,7 +653,7 @@ def train(model, loader, config, epoch):
             # MVC with zero probability loss
             if config['MVC'] and config['explicit_zero_prob']:
                 loss_mvc_zero_log_prob = config['criterion_neg_log_bernoulli'](
-                    output_dict["mvc_zero_probs"], target_values, masked_positions
+                    output_dict["mvc_zero_probs"], input_target_values, masked_positions
                 )
                 loss = loss + loss_mvc_zero_log_prob
                 metrics_to_log.update({"train/mvc_nzlp": loss_mvc_zero_log_prob.item()})
@@ -1002,6 +1009,8 @@ def main():
     
     # Set up directories
     repo_dir, data_dir, save_dir, model_dir, directories = setup_directories()
+    print(directories)
+    print(args.output_dir)
     
     # Set up logging
     logger = setup_logging(args.output_dir)  # Use args instead of config
@@ -1020,6 +1029,7 @@ def main():
     
     # Build a unified configuration
     config = build_config(args, metadata)
+    logger.info(config)
     
     # Add model-specific configuration
     config.update(build_model_config(args))
@@ -1073,23 +1083,29 @@ def main():
     
     
     # Preprocess the data
-    try:
-        adata_train = preprocess_data(adata_train, config)
-        adata_test = preprocess_data(adata_test, config)
-    except Exception as e:
-        logger.error(f"Error preprocessing data: {str(e)}")
-        raise
+    if args.preprocess:
+        try:
+            adata_train = preprocess_data(adata_train, config)
+            adata_test = preprocess_data(adata_test, config)
+        except Exception as e:
+            logger.error(f"Error preprocessing data: {str(e)}")
+            raise
 
     # Load vocabulary
     try:
-        vocab_file = Path(model_dir) / "scGPT_Human" / "vocab.json"
-        if not vocab_file.exists():
+        vocab_file = os.path.join(args.load_model, "vocab.json")
+        logger.info(f"Looking for vocabulary file at: {vocab_file}")
+        if not os.path.exists(vocab_file):
+            logger.error(f"Vocabulary file not found. Please check the following:")
+            logger.error(f"1. Model directory exists: {args.load_model}")
+            logger.error(f"2. Vocabulary file exists in model directory")
+            logger.error(f"3. Current working directory: {os.getcwd()}")
             raise FileNotFoundError(f"Vocab file not found at: {vocab_file}")
             
         logger.info(f"Loading vocabulary from {vocab_file}")
         vocab = GeneVocab.from_file(vocab_file)
         
-        special_tokens = [args.pad_token, "<cls>", "<eoc>"]
+        special_tokens = [config['pad_token'], "<cls>", "<eoc>"]
         for s in special_tokens:
             if s not in vocab:
                 vocab.append_token(s)
@@ -1101,7 +1117,7 @@ def main():
     
     # Load model configuration
     try:
-        model_config_file = Path(model_dir) / "scGPT_Human" / "args.json"
+        model_config_file = Path(config['load_model']) / "args.json"
         if not model_config_file.exists():
             raise FileNotFoundError(f"Model config file not found at: {model_config_file}")
             
@@ -1147,6 +1163,12 @@ def main():
     d_hid = model_configs.get("d_hid", args.layer_size * 4)
     nlayers = model_configs.get("nlayers", args.nlayers)
     n_layers_cls = model_configs.get("n_layers_cls", 1)
+
+
+    #extract data parameters
+    celltype = config['cell_type_col']
+    gene_col = config['gene_col']
+    batch_key = config['batch_key']
     
     # Prepare input data
     try:
@@ -1166,21 +1188,20 @@ def main():
             if issparse(adata_train.layers[input_layer_key])
             else adata_train.layers[input_layer_key]
         )
-        
         # Ensure celltype and batch columns exist
-        if "celltype" not in adata_train.obs.columns:
+        if celltype not in adata_train.obs.columns:
             logger.error("Cell type information missing. Please specify cell type column.")
             raise ValueError("Cell type information missing")
             
-        if "batch_id" not in adata_train.obs.columns:
+        if batch_key not in adata_train.obs.columns:
             logger.warning("Batch information missing. Setting all cells to batch 0.")
             adata_train.obs["batch_id"] = 0
             
         genes = adata_train.var[gene_col].tolist()
-        celltypes_labels = adata_train.obs["celltype_id"].tolist()
+        celltypes_labels = adata_train.obs[celltype].tolist()
         celltypes_labels = np.array(celltypes_labels)
         
-        batch_ids = adata_train.obs["batch_id"].tolist()
+        batch_ids = adata_train.obs[batch_key].tolist()
         num_batch_types = len(set(batch_ids))
         batch_ids = np.array(batch_ids)
         
@@ -1211,8 +1232,8 @@ def main():
     
     # Prepare gene_ids and tokenization config
     try:
-        vocab.set_default_index(vocab[args.pad_token])
-        gene_ids = np.array([vocab[gene] if gene in vocab else vocab[args.pad_token] for gene in genes], dtype=int)
+        vocab.set_default_index(vocab[config['pad_token']])
+        gene_ids = np.array([vocab[gene] if gene in vocab else vocab[config['pad_token']] for gene in genes], dtype=int)
         config['gene_ids'] = gene_ids
         config['vocab'] = vocab
         config['max_len'] = args.max_seq_len
@@ -1275,27 +1296,11 @@ def main():
         )
 
         # Load pre-trained model if specified
-        if config['load_model'] is not None:
-            model_file = Path(config['load_model']) / "best_model.pt"
-            if model_file.exists():
-                try:
-                    model.load_state_dict(torch.load(model_file, map_location=config['device']))
-                    logger.info(f"Loading all model params from {model_file}")
-                except:
-                    # only load params that are in the model and match the size
-                    model_dict = model.state_dict()
-                    pretrained_dict = torch.load(model_file, map_location=config['device'])
-                    pretrained_dict = {
-                        k: v
-                        for k, v in pretrained_dict.items()
-                        if k in model_dict and v.shape == model_dict[k].shape
-                    }
-                    for k, v in pretrained_dict.items():
-                        logger.info(f"Loading params {k} with shape {v.shape}")
-                    model_dict.update(pretrained_dict)
-                    model.load_state_dict(model_dict)
-            else:
-                logger.warning(f"Model file not found at {model_file}, using randomly initialized weights")
+        try:
+            load_pretrained_model(args.load_model, model)
+        except Exception as e:
+            logger.error(f"Failed to load pretrained model: {str(e)}")
+            raise
 
         # Move model to device
         model.to(config['device'])
@@ -1447,7 +1452,14 @@ def main():
         logger.info(f"Training complete. Best model was from epoch {best_model_epoch} with validation loss {best_val_loss:.4f}")
     
     # Use the best model for testing if available, otherwise use the current model
-    test_model = best_model if best_model is not None else model
+    if config['do_train']:
+        # If we did training, use the best model if available
+        test_model = best_model if 'best_model' in locals() else model
+    else:
+        # If we didn't do training, just use the loaded model
+        test_model = model
+
+    logger.info("Using model for testing...")
     
     # Test the model
     predictions, labels, results = test(test_model, adata_test, config)
