@@ -590,15 +590,34 @@ class scGPTAnnotator:
             return
         adata.write_h5ad(results_path)
         print(f"Results saved to {results_path}")
-
-    def add_top_n_predictions(self, adata, n=3, pred_cell_col='pred_cell_type', cell_type_col='cell_type'):
-        """show of the top n (default 3) the prediction scores of the classifier for choosing the cell type, for better comparison
-        and interpretation of the results. Als compares with ground truth (if provided). Scores the probabilities of the other cells
-        in a probability matrix in adata.uns 
-        """	
-
+    def add_top_n_predictions(self, adata, n=5, pred_cell_col='pred_cell_type', cell_type_col='cell_type'):
+        """Show the top n prediction scores of the classifier for choosing the cell type.
+        
+        Adds top predictions to adata.obs, stores probability matrix in adata.obsm,
+        and adds a clean dataframe with prediction data in adata.uns.
+        
+        Args:
+            adata: AnnData object with predictions
+            n: Number of top predictions to store (default 5)
+            pred_cell_col: Column name for predicted cell type
+            cell_type_col: Column name for true cell type (if available)
+            
+        Returns:
+            adata: Updated AnnData object
+        """
+        # Basic input validation
+        if pred_cell_col not in adata.obs.columns:
+            print(f"Warning: '{pred_cell_col}' not found in data")
+            return adata
+            
         # Get probability columns
         prob_cols = [col for col in adata.obs.columns if col.startswith(f'{pred_cell_col}_prob_')]
+        
+        if not prob_cols:
+            print(f"Warning: No probability columns found with prefix '{pred_cell_col}_prob_'")
+            return adata
+        
+        print(f"Found {len(prob_cols)} probability columns")
         
         # Extract cell type names
         cell_types = [col.replace(f'{pred_cell_col}_prob_', '') for col in prob_cols]
@@ -612,7 +631,12 @@ class scGPTAnnotator:
         adata.obsm['cell_type_probabilities'] = prob_matrix
         adata.uns['cell_type_probability_classes'] = cell_types
         
+        # Get confidence score (probability of top prediction)
+        top_probabilities = np.max(prob_matrix, axis=1)
+        adata.obs['prediction_confidence'] = top_probabilities
+        
         # For each cell, add top N predictions to obs
+        print(f"Adding top {n} predictions for {adata.n_obs} cells...")
         for i in range(adata.n_obs):
             # Get indices of top N probabilities
             top_indices = np.argsort(prob_matrix[i])[-n:][::-1]
@@ -640,66 +664,173 @@ class scGPTAnnotator:
             
             adata.obs['true_in_top_n'] = in_top_n
             valid_idx = ~adata.obs[cell_type_col].isna()
-            top_n_accuracy = sum(in_top_n) / sum(valid_idx)
-            print(f"Top-{n} accuracy: {top_n_accuracy:.4f}")
+            top_n_accuracy = sum(in_top_n) / sum(valid_idx) if sum(valid_idx) > 0 else 0
+            print(f"Top-{n} accuracy: {top_n_accuracy:.4f} ({sum(in_top_n)} / {sum(valid_idx)} cells)")
         
-        print(f"Full probability matrix stored in adata.obsm['cell_type_probabilities']")
-        print(f"Top {n} predictions stored in adata.obs columns")
+        # Create the DataFrame for adata.uns
+        columns = []
+        if cell_type_col in adata.obs.columns:
+            columns.append(cell_type_col)
+        
+        columns.append(pred_cell_col)
+        columns.append('prediction_confidence')
+        
+        for i in range(1, n+1):
+            columns.extend([f'top{i}_type', f'top{i}_prob'])
+        
+        if 'true_in_top_n' in adata.obs.columns:
+            columns.append('true_in_top_n')
+        
+        # Store this clean DataFrame in uns for easy access
+        prediction_df = adata.obs[columns].copy()
+        adata.uns['prediction_data'] = prediction_df
+        
+        print(f"Prediction data stored in adata.uns['prediction_data']")
         
         return adata
 
+    def evaluate_comprehensive(self, adata, pred_cell_col='pred_cell_type', cell_type_col='cell_type'):
+        """
+        Comprehensive evaluation of cell type predictions with standard metrics and confidence analysis.
+        
+        Args:
+            adata: AnnData object with predictions (must have prediction_data in adata.uns)
+            pred_cell_col: Column with predicted cell types
+            cell_type_col: Column with true cell types
+            
+        Returns:
+            adata: Updated AnnData object with evaluation results
+        """
+        from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        
+        # Basic validation
+        if cell_type_col not in adata.obs.columns:
+            print(f"Error: True label column '{cell_type_col}' not found in data")
+            return adata
+            
+        if pred_cell_col not in adata.obs.columns:
+            print(f"Error: Prediction column '{pred_cell_col}' not found in data")
+            return adata
+            
+        if 'prediction_data' not in adata.uns:
+            print("Warning: No prediction_data found. Run add_top_n_predictions first.")
+            return adata
+        
+        # Filter valid cells with non-null true labels
+        valid_mask = ~adata.obs[cell_type_col].isna()
+        valid_count = valid_mask.sum()
+        
+        if valid_count == 0:
+            print("No cells with valid cell type labels found")
+            return adata
+            
+        print(f"Evaluating {valid_count} cells with true cell type labels")
+        
+        # Get true and predicted labels for valid cells
+        y_true = adata.obs[cell_type_col][valid_mask]
+        y_pred = adata.obs[pred_cell_col][valid_mask]
+        
+        # Calculate overall metrics
+        accuracy = accuracy_score(y_true, y_pred)
+        class_report = classification_report(y_true, y_pred, output_dict=True)
+        
+        # Get unique classes and confusion matrix
+        cell_types = sorted(y_true.unique())
+        cm = confusion_matrix(y_true, y_pred, labels=cell_types)
+        
+        # Create evaluation results structure
+        adata.uns['evaluation_results'] = {
+            'overall': {
+                'accuracy': float(accuracy),
+                'weighted_avg_precision': float(class_report['weighted avg']['precision']),
+                'weighted_avg_recall': float(class_report['weighted avg']['recall']),
+                'weighted_avg_f1': float(class_report['weighted avg']['f1-score'])
+            },
+            'confusion_matrix': {
+                'matrix': cm.tolist(),
+                'labels': cell_types
+            }
+        }
+        
+        # Add per-class metrics
+        per_class_metrics = []
+        for cell_type in cell_types:
+            metrics = class_report.get(cell_type, {})
+            if metrics:
+                per_class_metrics.append({
+                    'cell_type': cell_type,
+                    'precision': float(metrics['precision']),
+                    'recall': float(metrics['recall']),
+                    'f1': float(metrics['f1-score']),
+                    'support': int(metrics['support'])
+                })
+        
+        adata.uns['evaluation_results']['per_class'] = per_class_metrics
+        
+        # Calculate metrics by confidence level
+        confidence_analysis = []
+        confidence_bins = [0, 0.25, 0.5, 0.75, 0.9, 1.0]
+        
+        prediction_df = adata.uns['prediction_data']
+        for i in range(len(confidence_bins)-1):
+            lower = confidence_bins[i]
+            upper = confidence_bins[i+1]
+            
+            # Filter cells in this confidence range
+            mask = ((prediction_df['prediction_confidence'] > lower) & 
+                    (prediction_df['prediction_confidence'] <= upper) &
+                    (~prediction_df[cell_type_col].isna()))
+                
+            bin_df = prediction_df[mask]
+            
+            if len(bin_df) > 0:
+                bin_accuracy = (bin_df[cell_type_col] == bin_df[pred_cell_col]).mean()
+                confidence_analysis.append({
+                    'confidence_range': f"{lower:.2f}-{upper:.2f}",
+                    'cell_count': len(bin_df),
+                    'percent_of_total': len(bin_df) / len(prediction_df) * 100,
+                    'accuracy': float(bin_accuracy)
+                })
+        
+        adata.uns['evaluation_results']['confidence_analysis'] = confidence_analysis
+        
+        # Print summary
+        print("\nClassification Performance Summary:")
+        print(f"Overall accuracy: {accuracy:.4f}")
+        print(f"Weighted avg precision: {class_report['weighted avg']['precision']:.4f}")
+        print(f"Weighted avg recall: {class_report['weighted avg']['recall']:.4f}")
+        print(f"Weighted avg F1: {class_report['weighted avg']['f1-score']:.4f}")
+        
+        # Print top 5 classes by support
+        top_classes = sorted(per_class_metrics, key=lambda x: x['support'], reverse=True)[:5]
+        print("\nTop 5 Cell Type Performance:")
+        for metrics in top_classes:
+            print(f"{metrics['cell_type']} (n={metrics['support']}): " +
+                f"Precision={metrics['precision']:.4f}, " +
+                f"Recall={metrics['recall']:.4f}, " +
+                f"F1={metrics['f1']:.4f}")
+        
+        # Create confusion matrix visualization if not too large
+        if len(cell_types) <= 20:  # Only create visualization for reasonable size
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=cell_types, yticklabels=cell_types)
+            plt.xlabel('Predicted')
+            plt.ylabel('True')
+            plt.title('Confusion Matrix')
+            plt.tight_layout()
+            
+            # Store plot in adata
+            adata.uns['evaluation_results']['confusion_matrix_plot'] = plt
+        
+        return adata
 
-## === ENVIRONMENT and DATA LOADING === # 
     
 
-#setup directories  
-def setup_directories(): #this could also be done in the utils, and imported. Also -- needs to be able to use
-    #relative and absolute paths. It's too narrow right now 
-    """Set up necessary directories and return their paths
-    
-    TO BE ADDED:
-    - Absolute paths if needed 
-    - inputs for if specified paths are needed (either from config or from command line) 
-    """
-    repo_dir = Path.cwd().absolute()
-    data_dir = repo_dir / "data"
-    save_dir = repo_dir / "save"
-    
-    data_dir.mkdir(parents=True, exist_ok=True)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    
-    return repo_dir, data_dir, save_dir
 
 
-#ensure that there are embeddings -> in main? 
-def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
-    """Load h5ad file with optional subsetting (no caching)
-    
-    Args:
-        path: Path to h5ad file
-        save_dir: Ignored parameter (kept for compatibility)
-        subset: Dict with keys 'start_row', 'n_rows', 'obs_columns' or None for full dataset
-        force_reload: Ignored parameter (kept for compatibility)
-    
-    Returns:
-        AnnData object
-    """
-    import time
-    from pathlib import Path
-    
-    # Start timing
-    start_time = time.time()
-    
-    # Simple loading without any caching
-    print(f"Loading data from {path}{' (subset)' if subset else ''}")
-    if subset is None:
-        adata = sc.read_h5ad(path)
-    else:
-        from utils import _load_anndata
-        adata = _load_anndata(path, subset)
-    print(f"Data loaded in {time.time()-start_time:.2f}s with shape {adata.shape}")
-    
-    return adata
 
 
 ## === BENCHMARKING === # 
@@ -707,299 +838,5 @@ def load_h5ad(path, save_dir=None, subset=None, force_reload=False):
 #   - compare with other classifiers
 #   - compare with other clustering methods
 #   - compare with other dimensionality reduction methods
-
-def test_existing_results(file_path, cell_type_col='cell_type', pred_cell_col='pred_cell_type'):
-    """
-    Test evaluation functions on existing results file without retraining.
-    
-    Args:
-        file_path: Path to existing results h5ad file
-        cell_type_col: Column name for true cell type
-        pred_cell_col: Column name for predicted cell type
-    """
-    print(f"Loading existing results from {file_path}")
-    import scanpy as sc
-    
-    # Load the existing results
-    adata = sc.read_h5ad(file_path)
-    print(f"Loaded data with shape {adata.shape}")
-    
-    # Create an annotator instance for using the evaluation methods
-    annotator = scGPTAnnotator(embedding_key='X_scGPT')
-    
-    # Track metadata for method compatibility
-    annotator.cell_type_col = cell_type_col
-    
-    # Add top N predictions analysis
-    adata = annotator.add_top_n_predictions(adata, n=3, 
-                                          pred_cell_col=pred_cell_col, 
-                                          cell_type_col=cell_type_col)
-    
-    # Evaluate with visualizations
-    valid_classes, adata, results = annotator.evaluate_with_visuals(
-        adata, 
-        cell_type_col=cell_type_col, 
-        pred_cell_col=pred_cell_col
-    )
-    
-    # Save the updated results with analysis
-    import os
-    from pathlib import Path
-    from datetime import datetime
-    
-    # Create an output filename based on the input
-    input_path = Path(file_path)
-    output_dir = input_path.parent
-    output_name = f"{input_path.stem}_analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
-    output_path = output_dir / output_name
-    
-    # Save results
-    adata.write_h5ad(output_path)
-    print(f"Updated results saved to {output_path}")
-    
-    return adata, results
-
-# Add this to the bottom of your script or call it directly
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Analyze existing scGPT classification results')
-    parser.add_argument('--results_file', type=str, required=True,
-                       help='Path to existing results h5ad file')
-    parser.add_argument('--cell_type_col', type=str, default='cell_type',
-                       help='Column name for true cell type')
-    parser.add_argument('--pred_cell_col', type=str, default='pred_cell_type',
-                       help='Column name for predicted cell type')
-    
-    args = parser.parse_args()
-    
-    # Just run the test function on existing results
-    test_existing_results(args.results_file, 
-                        cell_type_col=args.cell_type_col,
-                        pred_cell_col=args.pred_cell_col)
-
-
-## === REPORT === # 
-
-
-
-# === MAIN FUNCTION === # 
-
-
-def main():
-    """Main function"""
-    parser = argparse.ArgumentParser(description='scGPT data loading and metadata extraction')
-
-    subparsers = parser.add_subparsers(dest='command', help='Command to run')
-
-    parser.add_argument('--query_file', type=str, default='data/Derived_Embryoid_Bodies_all_embeds.h5ad', 
-                       help='Path to input h5ad file')
-    parser.add_argument('--ref_file', type=str, default=None,
-                       help='Path to input h5ad file (defaults to query_file if not specified)')
-    parser.add_argument('--force_reload', action='store_true', 
-                       help='Force reload data and ignore cache')
-    parser.add_argument('--testing', action='store_true', default=True, 
-                       help='Use test output directory')                                 #change this one to True for testing, or in terminal
-    parser.add_argument('--output_mode', type=str, choices=['terminal', 'file', 'both'], #terminal: output to terminal, file: output to file, both: output to both
-                       default='both', help='Where to output analysis information')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                       help='Print additional details about the dataset')
-    parser.add_argument('--html', action='store_true', default=False,
-                       help='Generate HTML report instead of text')
-    
-    # Updated subsetting arguments
-    subset_group = parser.add_argument_group('Data subsetting options')
-    subset_group.add_argument('--subset', type=int, default=None,
-                       help='Load a subset of N cells (shorthand for --n_rows)')
-    subset_group.add_argument('--start_row', type=int, default=0,
-                       help='Starting row index for subset loading')
-    subset_group.add_argument('--n_rows', type=int, default=None,
-                       help='Number of rows to load (None = all remaining rows)')
-    subset_group.add_argument('--obs_columns', type=str, nargs='+', default=None,
-                       help='Space-separated list of observation columns to include')
-    
-    # Arguments for analysis-only mode (new functionality)
-    analyze_parser = subparsers.add_parser('analyze', help='Analyze existing results without retraining')
-    analyze_parser.add_argument('--results_file', type=str, required=True,
-                        help='Path to existing results h5ad file')
-    analyze_parser.add_argument('--cell_type_col', type=str, default='cell_type',
-                        help='Column name for true cell type')
-    analyze_parser.add_argument('--pred_cell_col', type=str, default='pred_cell_type',
-                        help='Column name for predicted cell type')
-    
-    args = parser.parse_args()
-    
-    # If no command specified, default to 'train'
-    if args.command is None:
-        args.command = 'train'
-        
-    if args.command == 'analyze':
-        # Run the analysis-only workflow
-        print("Running analysis on existing results...")
-        test_existing_results(args.results_file, 
-                             cell_type_col=args.cell_type_col,
-                             pred_cell_col=args.pred_cell_col)
-    else:
-        # Run the full training and prediction workflow (your existing code)
-        print("Running scGPT classifier training and prediction pipeline...")
-        
-        # Your existing code goes here
-        # Setup directories
-        repo_dir, data_dir, save_dir = setup_directories()
-    
-    
-    
-        # Setup directories
-        
-        # Add repo to path if needed
-        if str(repo_dir) not in sys.path:
-            sys.path.append(str(repo_dir))
-        
-        # Create output directory
-        base_name = Path(args.query_file).stem
-        date_str = datetime.now().strftime("%Y%m%d")
-        
-        if args.testing:
-            output_dir = save_dir / "test_output"
-        else:
-            existing = [x for x in save_dir.iterdir() if x.is_dir() and x.name.startswith(f"{base_name}_{date_str}")]
-            number = len(existing) + 1
-            output_dir = save_dir / f"{base_name}_{date_str}_{number:02d}"
-        
-        output_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Output directory: {output_dir}")
-        
-        # Load data with subsetting
-        subset = None
-        
-        # Handle --subset as a shortcut for --n_rows
-        if args.subset is not None:
-            args.n_rows = args.subset
-        
-        # Create subset dictionary if any subsetting options specified
-        if args.n_rows is not None or args.obs_columns is not None:
-            subset = {
-                'start_row': args.start_row,
-                'n_rows': args.n_rows,
-                'obs_columns': args.obs_columns
-            }
-            print(f"Loading data subset: start={args.start_row}, rows={args.n_rows or 'all'}")
-            if args.obs_columns:
-                print(f"Including only these obs columns: {', '.join(args.obs_columns)}")
-
-        #load metadata
-        base_name = Path(args.query_file).stem
-        metadata_path = output_dir / f"{base_name}_metadata.json"
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-
-        # Check if metadata exists
-        if not metadata_path.exists():
-            print(f"Warning: No metadata found at {metadata_path}")
-            print("Proceeding without metadata - some features may be limited")
-            metadata = {}
-        else:
-            print(f"Loading metadata from {metadata_path}")
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
-
-        annotator = scGPTAnnotator(embedding_key='X_scGPT') #initialize the annotator
-        has_query_embeddings, query_message = annotator.check_embeddings(args.query_file) #check if the query data has embeddings
-        if not has_query_embeddings:
-            print(f"Error: {query_message}")
-            print("Cannot proceed without embeddings in query file.")
-            sys.exit(1)
-
-        print(f"Query file: {query_message}")
-        query_adata = load_h5ad(args.query_file, save_dir=output_dir, subset=subset, force_reload=args.force_reload) #load the query data
-        print(query_adata)
-        annotator.set_query_data(query_adata) #set the query data
-
-        # Get cell type and batch keys from metadata
-        cell_type_key = metadata['cell_type_keys'][0] if metadata.get('cell_type_keys') else None #to make sure it doesn't error
-        batch_key = metadata['batch_keys'][1] if metadata.get('batch_keys') else None #to make sure it doesn't error if it's not there 
-
-        print(f"Using cell type key: {cell_type_key}")
-        print(f"Using batch key: {batch_key}")
-
-        # Handle reference data - either from file or by splitting query
-        if args.ref_file is not None:
-            # External reference file provided
-            has_ref_embeddings, ref_message = annotator.check_embeddings(args.ref_file)
-            if not has_ref_embeddings:
-                print(f"Warning: Reference file doesn't have embeddings: {ref_message}")
-                print("Falling back to split from query data.")
-                
-                # Split query using batch key from metadata
-                if batch_key and batch_key in query_adata.obs:
-                    print(f"Splitting query data using {batch_key} information")
-                    print(f"Available batches: {query_adata.obs[batch_key].unique()}")
-                    annotator.split_query_ref(query_adata, method='batch', batch_key=batch_key)
-                else:
-                    print("No valid batch key. Using random split.")
-                    annotator.split_query_ref(query_adata, method='random')
-            else:
-                # Reference file has embeddings, use it
-                print(f"Reference file: {ref_message}")
-                ref_adata = load_h5ad(args.ref_file, save_dir=output_dir, subset=subset, force_reload=args.force_reload)
-                annotator.set_ref_data(ref_adata)
-        else:
-            # No reference file provided, split query data
-            print("No reference file provided. Creating reference from query data.")
-            #there needs to be an extra check that the query data has cell_type information 
-            
-            # Use batch key from metadata
-            if batch_key and batch_key in query_adata.obs:
-                if len(query_adata.obs[batch_key].unique()) > 1:
-                    print(f"Splitting query data using {batch_key} information")
-                    print(f"Available batches: {query_adata.obs[batch_key].unique()}")
-                    annotator.split_query_ref(query_adata, method='batch', batch_key=batch_key)
-                else:
-                    print(f"Only one {batch_key} found. Using random split.")
-                    annotator.split_query_ref(query_adata, method='random')
-            else:
-                print("No valid batch key in metadata. Using random split.")
-                annotator.split_query_ref(query_adata, method='random')
-
-        # Verify we have what we need
-        if annotator.query_adata is None:
-            print("Error: No query data available.")
-            sys.exit(1)
-        if annotator.ref_adata is None:
-            print("Error: No reference data available. Cannot proceed with classification.")
-            sys.exit(1)
-
-        print(f"Ready for cell type annotation using {cell_type_key} with {len(annotator.ref_adata)} reference cells and {len(annotator.query_adata)} query cells")
-        #name for predicted cell type column
-        pred_cell_type_key = 'pred_cell_type' #this could be done differently - better input or in config file
-
-        #train the classifier. Standard random forest classifier but can be changed to other classifiers
-        annotator.train_classifier(classifier_name='randomforest', cell_type_col=cell_type_key, batch_key=batch_key)
-
-        #predict the cell types
-        predicted_adata = annotator.predict(annotator.query_adata, pred_cell_col=pred_cell_type_key, store_probs=True, return_adata=True)
-        print(predicted_adata.obs[[cell_type_key, pred_cell_type_key]].head())
-        #evaluate the results
-        valid_classes, predicted_adata = annotator.evaluate(predicted_adata, y_true=cell_type_key, y_pred=pred_cell_type_key)
-
-        annotator.add_top_n_predictions(predicted_adata, n=3, pred_cell_col=pred_cell_type_key, cell_type_col=cell_type_key)
-
-        # Evaluate with visualizations
-        valid_classes, predicted_adata, results = annotator.evaluate_with_visuals(
-            predicted_adata, 
-            cell_type_col=cell_type_key, 
-            pred_cell_col=pred_cell_type_key
-        )
-        
-        #save the results
-        results_path = output_dir / f"Derived_Embryoid_Bodies_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
-        annotator.save_results(predicted_adata, results_path)
-        print(f"Predicted results saved to {results_path}")
-
-
-
-
-if __name__ == "__main__":
-    main()
 
 

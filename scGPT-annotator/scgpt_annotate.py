@@ -43,7 +43,7 @@ def main():
     
     try:
         logger.info("Importing pipeline module...")
-        from scripts.pipeline_1 import main as pipeline_main
+        from scripts.pipeline import main as pipeline_main
         logger.info("Successfully imported pipeline module")
         return pipeline_main()
         

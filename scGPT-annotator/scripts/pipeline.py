@@ -35,6 +35,7 @@ import scGPT_embedder
 from utils import add_dict_to_argparser
 from utils import str2bool
 from utils import build_config
+from utils import test_embed_config
 
 # Set up logging
 logging.basicConfig(
@@ -187,6 +188,34 @@ def fix_reserved_column_names(adata):
                 adata.obs = adata.obs.rename(columns={reserved: new_name})
 
     return adata
+
+def embed_step(adata, config):
+    """Embed data using config overrides or defaults."""
+    logger = logging.getLogger("scGPT")
+    
+    # Extract embedding-specific config
+    embed_config = {
+        'gene_col': config.get('gene_col'),
+        'batch_size': config.get('batch_size'),
+        'max_length': config.get('max_length'),
+        'model_dir': config.get('model_dir'),
+        'device': config.get('device'),
+        'use_fast_transformer': config.get('use_fast_transformer'),
+        'return_new_adata': config.get('return_new_adata'),
+        'obs_to_save': config.get('obs_to_save'),
+        # Add other config items you want to override
+    }
+    
+    # Remove None values to use defaults
+    embed_config = {k: v for k, v in embed_config.items() if v is not None}
+    
+    from scGPT_embedder import scGPTEmbedder
+    embedder = scGPTEmbedder(
+        model_dir=config['model_dir'],
+        config=embed_config
+    )
+    
+    return embedder.embed_data(adata)
 
 
 def main():
@@ -382,65 +411,52 @@ def main():
         logger.error("No data loaded - please check your query file")
         sys.exit(1)
 
-    # Step 3: Embedding (if enabled)
     if args.embed:
-        import scgpt as scg
-
-        logger.info("=== STEP 3: Running embedding ===")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using device: {device}")
-        config["device"] = device
-        print(f"Using device from config: {config['device']}")
-
-        logger.info("Current configuration:")
-        gene_col = config.get("gene_col")
-        batch_size = config.get("batch_size", 64)  # Default to 64 if not specified
-        model_dir = config.get("model_dir")
-        
-        if not gene_col:
-            logger.warning("No gene_col specified in config - will use index")
-            logger.warning("Please provide gene_col in config or command line")
+        device = config.get("device", "cuda")
+        if device != "cuda":
+            logger.error("No GPU found - can't embed")
             return 1
-        if not model_dir:
-            logger.error("No model_dir specified in config - required for embedding/classification")
-            return 1
+
+        logger.info("Using GPU for embedding")
         
-        logger.debug(f"Using gene_col: {gene_col}")
-        logger.debug(f"Using batch_size: {batch_size}")
-        logger.debug(f"Using model_dir: {model_dir}")
+        # Try embedding -- see if it fials 
+        try:
+            adata_embed = embed_step(adata, config)
+            
+            # Check if embeddings were generated
+            if 'X_scGPT' not in adata_embed.obsm:
+                raise ValueError("X_scGPT not found in embedded data")
+                
+            logger.info(f"Successfully generated embeddings with shape {adata_embed.obsm['X_scGPT'].shape}")
+            
+            # Update main adata object
+            adata = adata_embed
+            
+            # Handle embedding key
+            embedding_key = config.get('embedding_key', 'X_scGPT')
+            if embedding_key != 'X_scGPT':
+                adata.obsm[embedding_key] = adata.obsm['X_scGPT']
+                logger.info(f"Copied embeddings to new key: {embedding_key}")
+                
+        except Exception as e:
+            logger.error(f"Embedding failed: {str(e)}")
+            if not args.force_continue:
+                return 1
+            logger.warning("Continuing despite embedding failure (force_continue)")
+            
+        try:
+            output_file = output_dir / f"{base_name}_embeddings.h5ad"
+            adata.write_h5ad(output_file)
+            logger.info(f"Saved embedded data to {output_file}")
+        except Exception as e:
+            logger.error(f"Failed to save embedded data: {str(e)}")
+            if not args.force_continue:
+                return 1
+            logger.warning("Continuing despite save failure (force_continue)")
+        
 
+    embedding_key = config.get('embedding_key', 'X_scGPT')
 
-        if device == "cuda":
-            logger.info("Using GPU for embedding")
-            embedding_adata = scg.tasks.embed_data(
-                adata,
-                gene_col=gene_col,
-                batch_size=batch_size,
-                model_dir= model_dir ,
-                device="cuda"
-            )
-
-            if embedding_adata.var.index.name in embedding_adata.var.columns:
-                embedding_adata.var.index.name = f"{embedding_adata.var.index.name}_index"
-
-            embedding_file = os.path.join(output_dir, "embeddings.h5ad")
-            logger.info(f"Saving embeddings to {embedding_file}")
-            try:
-                # Fix any reserved column names before saving
-                embedding_adata = fix_reserved_column_names(embedding_adata)
-                embedding_adata.write_h5ad(embedding_file)
-                logger.info(f"Embeddings saved to {embedding_file}")
-                adata = embedding_adata
-            except Exception as e:
-                logger.error(f"Failed to save embeddings: {str(e)}")
-                traceback.print_exc()
-                if not getattr(args, 'force_continue', False):
-                    return 1
-                logger.warning("Continuing despite embedding save error (force_continue)")
-        else:
-            logger.info("No GPU available, cannot do embedding.")
-
-    embedding_key = config.get("embedding_key", "X_scGPT")
 
     if args.classify:
         logger.info("=== STEP 4: Running classification ===")
@@ -588,18 +604,21 @@ def main():
         logger.info(f"Adding top {n_predictions} predictions")
         annotator.add_top_n_predictions(predicted_adata, n=n_predictions, pred_cell_col=pred_cell_type_key, cell_type_col=cell_type_key)
 
+        logger.info(f"Prediction data stored in adata.uns['prediction_data']")
+        logger.info(predicted_adata.uns['prediction_data'])
+
+        logger.info(f"and summary of predictions in adata.uns['prediction_summary']")
+        logger.info(predicted_adata.uns['prediction_summary'])
+
         # Save the results
-        filename_base = os.path.basename(args.query_file).split('.')[0] if args.query_file else "scGPT_results"
-        results_path = output_dir / f"{filename_base}_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
+        results_path = output_dir / f"{base_name}_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
         logger.info(f"Saving prediction results to {results_path}")
         annotator.save_results(predicted_adata, results_path)
         logger.info(f"Predicted results saved to {results_path}")
+        
+        #logger.info(f"Predicted data saved to {output_dir / 'predicted_adata.h5ad'}")
+        #predicted_adata.write_h5ad(output_dir / 'predicted_adata.h5ad')
 
-        #log and save the predicted data
-        logger.info(f"Predicted data saved to {output_dir / 'predicted_adata.h5ad'}")
-        predicted_adata.write_h5ad(output_dir / 'predicted_adata.h5ad')
-
-    # Step 5: Evaluate the results (if enabled) 
     
     # Step 5: Evaluate the results (if enabled) 
     if args.evaluate:
