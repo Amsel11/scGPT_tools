@@ -36,6 +36,7 @@ from utils import add_dict_to_argparser
 from utils import str2bool
 from utils import build_config
 from utils import test_embed_config
+from cellxgene_download import download_cellxgene_v2
 
 # Set up logging
 logging.basicConfig(
@@ -44,10 +45,26 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+# Add the conversion function after imports
+def convert_np_types(obj):
+    """Convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: convert_np_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_np_types(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return convert_np_types(obj.tolist())
+    else:
+        return obj
+
 def create_argparser():
     defaults = {
         # Model configuration
-        "model_dir": "data/scGPT_Human",
+        "model_dir": "/root/scGPT_dir/scGPT/data/scGPT_Human",
         "checkpoint_name": "best_model.pt",
         "embedding_dim": 512,
         "num_heads": 8,
@@ -64,8 +81,8 @@ def create_argparser():
         
         # Other settings 
         "output_dir": None,
-        "classifier": "randomforest",
         "classifier_file": None,
+        "classifier": "randomforest",
         "n_top_predictions": 5,
         "pred_cell_type_key": "pred_cell_type",
     }
@@ -77,13 +94,13 @@ def create_argparser():
     
     # Create argument groups for better organization
     io_group = parser.add_argument_group('Input/Output Options')
-    io_group.add_argument('--query_file', required=True,
-                       help='Path to the query h5ad file containing cells to analyze/annotate. Required - pipeline cannot run without input data.')
+    io_group.add_argument('--query_file', default=None,
+                       help='Path to the query h5ad file containing cells to analyze/annotate. Required unless --download_data is used.')
     io_group.add_argument('--ref_file', default=None, 
                        help='Path to reference h5ad file with annotated cells (optional)')
     io_group.add_argument('--config_file', default="scripts/scGPT_embed_config.json", 
                        help='Path to the JSON configuration file')
-    io_group.add_argument('--classifier_file', 
+    io_group.add_argument('--classifier_file', default=None,
                        help='Path to a pre-trained classifier file (optional)')
     io_group.add_argument('--output_dir', default=None,
                        help='Directory to save output files (default: auto-generated)')
@@ -98,7 +115,7 @@ def create_argparser():
                        help='Run embedding step (generate scGPT embeddings)')
     steps_group.add_argument('--classify', action='store_true', default=False,
                        help='Run classification step (predict cell types)')
-    steps_group.add_argument('--evaluate', action='store_true', default=True,
+    steps_group.add_argument('--evaluate', action='store_true', default=False,
                        help='Evaluate classification performance (when ground truth is available)')
     steps_group.add_argument('--all', action='store_true', default=False,
                        help='Run all pipeline steps (analysis, embed, classify, evaluate)')
@@ -198,12 +215,11 @@ def embed_step(adata, config):
         'gene_col': config.get('gene_col'),
         'batch_size': config.get('batch_size'),
         'max_length': config.get('max_length'),
-        'model_dir': config.get('model_dir'),
         'device': config.get('device'),
         'use_fast_transformer': config.get('use_fast_transformer'),
         'return_new_adata': config.get('return_new_adata'),
         'obs_to_save': config.get('obs_to_save'),
-        # Add other config items you want to override
+        # DO NOT include model_dir here
     }
     
     # Remove None values to use defaults
@@ -211,7 +227,7 @@ def embed_step(adata, config):
     
     from scGPT_embedder import scGPTEmbedder
     embedder = scGPTEmbedder(
-        model_dir=config['model_dir'],
+        model_dir=config.get('model_dir', "/root/scGPT_dir/scGPT/data/scGPT_Human"),
         config=embed_config
     )
     
@@ -223,12 +239,16 @@ def main():
     parser = create_argparser()
     args = parser.parse_args()
 
+    if args.all:
+        args.analysis = True
+        args.embed = True
+        args.classify = True
+        args.evaluate = True
+
     #check the args if verbose is on 
     if args.verbose:
         print(f"args: {args}")  
 
-    base_name = Path(args.query_file).stem
-    logging.info(f"base_name: {base_name}")
 
 
     from utils import build_config, setup_directories
@@ -236,31 +256,85 @@ def main():
     logging.info("Starting scGPT pipeline")
     logging.info(f"the directories are: {directories}")
 
+ 
+
+    # First handle the query file and download logic
+    if args.query_file:
+        # User specified a query file directly
+        query_file = args.query_file
+        print(f"query_file: {query_file}")
+        output_dir = save_dir / f"cellxgene_v2_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{query_file}"
+        if not Path(query_file).exists():
+            logging.warning(f"Query file does not exist: {query_file}")
+            if args.download_data:
+                logging.info("Will download data since query file doesn't exist.")
+                need_download = True
+            else:
+                logging.error("Exiting due to missing query file.")
+                return 1
+        else:
+            logging.info(f"Using specified query file: {query_file}")
+            need_download = False
+    else:
+        # No query file specified
+        if args.download_data:
+            logging.info("No query file specified, will download data.")
+            need_download = True
+            query_file = None  # Will be set after download
+        else:
+            logging.error("No query file specified and --download_data not used. Nothing to analyze.")
+            return 1
+
+    # Download data if needed
+    if need_download:
+        logging.info("=== STEP 0: Downloading example data ===")
+        # Use a fixed directory for downloads
+        download_dir = data_dir / "cellxgene_v2"
+        download_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Download the files
+            file_paths = download_cellxgene_v2(output_dir=download_dir)
+            
+            if not file_paths:
+                logging.error("No files were downloaded.")
+                return 1
+            
+            # If no query file was specified, use the first downloaded file
+            if query_file is None:
+                query_file = str(file_paths[0])
+                output_dir = save_dir / f"cellxgene_v2_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_paths[0].stem}"
+                logging.info(f"Using downloaded file as query: {query_file}")
+            
+            # List all available files
+            logging.info(f"All available files in {download_dir}:")
+            for i, path in enumerate(sorted(download_dir.glob("*.h5ad"))):
+                logging.info(f"[{i+1}] {path}")
+            
+        except Exception as e:
+            logging.error(f"Error downloading data: {str(e)}")
+            return 1
+
+    # Now check if we have a query file
+    if query_file is None:
+        logging.error("No query file specified. Use --query_file or --download_data")
+        return 1
+    
+    
+    # Now get the base name
+    base_name = Path(query_file).stem
+
     #create the output directory for this run 
-    date_str = datetime.now().strftime("%Y%m%d")
-    existing = [x for x in save_dir.iterdir() if x.is_dir() and x.name.startswith(f"{base_name}_{date_str}")]
-    number = len(existing) + 1
-    output_dir = save_dir / f"{base_name}_{date_str}_{number:02d}"
+    if output_dir is None:
+        date_str = datetime.now().strftime("%Y%m%d")
+        existing = [x for x in save_dir.iterdir() if x.is_dir() and x.name.startswith(f"{date_str}_{base_name}")]
+        number = len(existing) + 1
+        output_dir = Path(str(save_dir)) / f"{base_name}_{date_str}_{number:02d}"
+    else:
+        output_dir = Path(output_dir)
     
     output_dir.mkdir(parents=True, exist_ok=True)
     logging.info(f"Created output directory in {save_dir}: {output_dir}")
-
-    query_file = args.query_file 
-
-    #download the data from cellxgene or RJ if the flag is on 
-    if args.download_data:
-        from utils import download_cellxgene_v2
-        file_paths = download_cellxgene_v2(output_dir=output_dir, data_dir=data_dir)
-        query_file = file_paths[0]
-        
-        logging.info(f"Using Cellxgene V2: query_file: {query_file}")
-    
-    if args.all: #we run it allllll in one go (instead of doing it modularly)
-        args.analysis = True
-        args.embed = True
-        args.classify = True
-        args.evaluate = True
-
 
     #setup logging
     from utils import setup_logging
@@ -285,7 +359,6 @@ def main():
         print(f"Reference file: {args.ref_file}")
     print(f"Model directory: {config.get('model_dir')}")
     print(f"Save directory: {save_dir}")
-    print(f)
     print(f"Output directory: {output_dir}")
     steps = []
     if args.analysis:
@@ -586,6 +659,7 @@ def main():
         # Train the classifier
         if config.get('classifier_file') is None:
             classifier = config.get('classifier', 'knn')
+            logger.info("the classifier is: ", classifier)
             logger.info(f"Training {classifier} classifier")
             annotator.train_classifier(classifier_name=classifier, cell_type_col=cell_type_key, batch_key=batch_key)
             annotator.save_classifier(output_dir / f"{classifier}_classifier_{base_name}.pkl")
@@ -606,9 +680,6 @@ def main():
 
         logger.info(f"Prediction data stored in adata.uns['prediction_data']")
         logger.info(predicted_adata.uns['prediction_data'])
-
-        logger.info(f"and summary of predictions in adata.uns['prediction_summary']")
-        logger.info(predicted_adata.uns['prediction_summary'])
 
         # Save the results
         results_path = output_dir / f"{base_name}_pred_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5ad"
@@ -664,8 +735,21 @@ def main():
                     
                     # Save the evaluation results even if there's an error
                     logger.info(f"Saving evaluation results to {output_dir / 'evaluation_results.json'}")
-                    with open(output_dir / 'evaluation_results.json', 'w') as f:
-                        json.dump(results, f, indent=2)
+                    try:
+                        with open(output_dir / 'evaluation_results.json', 'w') as f:
+                            # Convert NumPy types before saving
+                            converted_results = convert_np_types(results)
+                            json.dump(converted_results, f, indent=2)
+                    except Exception as e:
+                        logger.error(f"Error saving results to JSON: {str(e)}")
+                        logger.info("Saving in simpler format without indent")
+                        try:
+                            # Fallback to simpler JSON format
+                            with open(output_dir / 'evaluation_results.json', 'w') as f:
+                                converted_results = convert_np_types(results)
+                                json.dump(converted_results, f)
+                        except Exception as e2:
+                            logger.error(f"Failed to save results: {str(e2)}")
                     
                     # Only continue with top-N analysis if we have valid classes
                     if len(valid_classes) > 0:
