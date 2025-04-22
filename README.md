@@ -1,37 +1,46 @@
-# SCGPT-annotator
-
-Use scGPT for single cell annotation in a bioinformatics pipeline:
-- Analysis of data and preparation
-- Data embedding using scGPT
-- Classification and evaluation of data to annotate cells
+# SCGPT-annotator Documentation
 
 ## Overview
 
-SCGPT-annotator is a comprehensive toolkit for automated cell type annotation using pre-trained scGPT models. This pipeline enables you to process single-cell RNA sequencing data, generate embeddings using scGPT, and apply machine learning classification to annotate cell types.
+SCGPT-annotator is a comprehensive pipeline for automated cell type annotation of single-cell RNA sequencing data using pre-trained scGPT embeddings. The tool processes single-cell data, generates high-quality cell embeddings, and applies machine learning classification to accurately predict cell types.
+
+## Table of Contents
+1. [Installation](#installation)
+2. [Usage](#usage)
+   - [Quick Start](#quick-start)
+   - [Step-by-Step Usage](#step-by-step-usage)
+   - [Using Reference Datasets](#using-reference-datasets)
+   - [Advanced Options](#advanced-options)
+3. [Input Data Format](#input-data-format)
+4. [Output](#output)
+5. [Configuration](#configuration)
+6. [Architecture](#architecture)
+7. [Performance](#performance)
+8. [Troubleshooting](#troubleshooting)
 
 ## Installation
 
 ### Prerequisites
-
 - Python 3.8+
 - PyTorch 1.9+
 - CUDA (recommended for GPU acceleration)
 
-### Install dependencies
-
+### Install Dependencies
+```bash
 pip install -r requirements.txt
+```
 
-### Download models
-
+### Download Models
 Download pre-trained scGPT models and place them in the `models/scGPT_human/` directory. Models can be downloaded from the scGPT releases page.
 
 ## Usage
 
 ### Quick Start
-
 Run the complete pipeline with a single command:
 
+```bash
 python scgpt_annotate.py --query_file data/your_data.h5ad --all
+```
 
 This will:
 1. Analyze the data to detect metadata
@@ -40,9 +49,9 @@ This will:
 4. Evaluate the results
 
 ### Step-by-Step Usage
-
 You can also run specific steps of the pipeline:
 
+```bash
 # 1. Run only analysis step
 python scgpt_annotate.py --query_file data/your_data.h5ad --analysis
 
@@ -54,15 +63,18 @@ python scgpt_annotate.py --query_file data/your_data.h5ad --classify
 
 # 4. Evaluate results
 python scgpt_annotate.py --query_file data/your_data.h5ad --evaluate
+```
 
 ### Using a Reference Dataset
-
 For annotating cells with a reference dataset:
 
+```bash
 python scgpt_annotate.py --query_file data/query.h5ad --ref_file data/reference.h5ad --classify
+```
 
 ### Advanced Options
 
+```bash
 # Specify gene column, cell type column, and batch key
 python scgpt_annotate.py --query_file data/your_data.h5ad --all \
  --gene_col "feature_name" \
@@ -71,36 +83,40 @@ python scgpt_annotate.py --query_file data/your_data.h5ad --all \
 
 # Use a different classifier
 python scgpt_annotate.py --query_file data/your_data.h5ad --all \
- --classifier_type "knn"  # Options: randomforest, knn, svm, lightgbm
+ --classifier "knn"  # Options: randomforest, knn, svm, lightgbm
 
 # Show top predictions
 python scgpt_annotate.py --query_file data/your_data.h5ad --all \
  --n_top_predictions 5
+```
 
 ## Input Data Format
-
 The pipeline accepts AnnData (h5ad) files with:
-- Gene expression matrix in .X
-- Cell metadata in .obs
-- Gene metadata in .var
+- Gene expression matrix in `.X`
+- Cell metadata in `.obs`
+- Gene metadata in `.var`
+
+The tool will attempt to automatically detect relevant columns for gene names, cell types, and batch information.
 
 ## Output
-
 The pipeline generates:
 1. Analysis of input data metadata
-2. scGPT embeddings stored in .obsm['X_scGPT']
-3. Cell type predictions in .obs['pred_cell_type']
-4. Prediction probabilities in .obs['pred_cell_type_prob_*']
+2. scGPT embeddings stored in `.obsm['X_scGPT']`
+3. Cell type predictions in `.obs['pred_cell_type']`
+4. Prediction probabilities in `.obs['pred_cell_type_prob_*']`
 5. Top N predictions for each cell
 6. Saved results in a timestamped h5ad file
+7. Evaluation metrics and visualizations when ground truth is available
 
 ## Configuration
-
 You can use a configuration file to set parameters:
 
+```bash
 python scgpt_annotate.py --query_file data/your_data.h5ad --config_file your_config.json
+```
 
 Example config file:
+```json
 {
  "model_dir": "models/scGPT_human",
  "gene_col": "feature_name",
@@ -110,6 +126,17 @@ Example config file:
  "classifier_type": "randomforest",
  "n_top_predictions": 5
 }
+```
+
+## Architecture
+
+SCGPT-annotator consists of several key components:
+
+1. **Data Inspector**: Analyzes input files to detect cell type annotations, gene columns, and other metadata
+2. **Chunking System**: Processes large datasets in memory-efficient chunks 
+3. **scGPT Embedder**: Generates cell embeddings using a pre-trained scGPT model
+4. **Cell Type Classifier**: Implements various ML algorithms for cell type prediction
+5. **Evaluation Module**: Assesses prediction accuracy and generates performance metrics
 
   
 
