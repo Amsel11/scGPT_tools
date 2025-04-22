@@ -31,7 +31,7 @@ pip install -r requirements.txt
 ```
 
 ### Download Models
-Download pre-trained scGPT models and place them in the `models/scGPT_human/` directory. Models can be downloaded from the scGPT releases page.
+Download pre-trained scGPT models from the [scGPT repository ](https://github.com/bowang-lab/scGPT/tree/main). Place them in the `models/scGPT_human/` directory, or specify the file directory in the config.
 
 ## Usage
 
@@ -47,6 +47,8 @@ This will:
 2. Generate scGPT embeddings
 3. Train a classifier and predict cell types
 4. Evaluate the results
+
+It is important to know several key-factors from the metadata, including the gene column, cell type and batch name. 
 
 ### Step-by-Step Usage
 You can also run specific steps of the pipeline:
