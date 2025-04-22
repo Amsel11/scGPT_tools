@@ -112,7 +112,7 @@ The pipeline generates:
 You can use a configuration file to set parameters:
 
 ```bash
-python scgpt_annotate.py --query_file data/your_data.h5ad --config_file your_config.json
+python scgpt_annotate.py --query_file data/your_data.h5ad --config_file your_config.json. A default config file can be found in the scGPT_annotator/config. 
 ```
 
 Example config file:
