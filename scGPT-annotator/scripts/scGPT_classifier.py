@@ -108,7 +108,20 @@ class scGPTAnnotator:
         print(f"Classifier parameters: {kwargs}")
         
         # Set the classifier attribute
-        self.classifier = classifier_class(**kwargs)
+        if classifier_name == 'lightgbm' and LIGHTGBM_AVAILABLE:
+            # Start with some default parameters to reduce warnings
+            lgb_params = {
+                'num_leaves': 31,
+                'min_data_in_leaf': 20,
+                'max_depth': -1,  # No limit
+                'verbosity': -1,  # Suppress most messages
+                'min_gain_to_split': 0.01  # Increase threshold for splits
+            }
+            # Update with any user-provided parameters
+            lgb_params.update(kwargs)
+            self.classifier = lgb.LGBMClassifier(**lgb_params)
+        else:
+            self.classifier = classifier_class(**kwargs)
         print(f"Initialized {type(self.classifier).__name__}")
         return self.classifier
     

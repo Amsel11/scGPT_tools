@@ -122,7 +122,7 @@ def analysis_meta(file_path, save=False, output_dir=None):
     
     # Define key category patterns #THIS CAN BE EXTENDED OR IN THE FUTURE BE PUT IN A CONFIG FILE
     key_categories = { 
-        'cell_type_keys': ['cell_type', 'celltype', 'cell.type', 'subtype', 'cell_type_label'],
+        'cell_type_keys': ['cell_type', 'celltype', 'cell.type', 'subtype', 'cell_type_label', 'cell_id', 'CELL_ID', 'cellID', 'CellID'],
         'gene_keys': ['feature_name', 'gene_symbol', 'gene_name', 'gene_id', 'ensg', 'ensembl_id'],
         'batch_keys': ['batch', 'donor', 'sample', 'replicate', 'experiment', 'dataset'],
         'hvg_keys': ['highly_variable', 'hvg', 'variable_gene', 'dispersion'],
