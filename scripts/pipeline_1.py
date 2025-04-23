@@ -96,8 +96,8 @@ def create_argparser():
                        help='Run embedding step (generate scGPT embeddings)')
     steps_group.add_argument('--classify', action='store_true', default=False,
                        help='Run classification step (predict cell types)')
-    steps_group.add_argument('--evaluate', action='store_true', default=True,
-                       help='Evaluate classification performance (when ground truth is available)')
+    steps_group.add_argument('--classifier_params', type=str, default=None,
+                  help='JSON string with classifier parameters, e.g., \'{"n_estimators": 200, "max_depth": 10}\''),
     steps_group.add_argument('--all', action='store_true', default=False,
                        help='Run all pipeline steps (analysis, embed, classify, evaluate)')
     
@@ -189,6 +189,26 @@ def fix_reserved_column_names(adata):
 
     return adata
 
+def embed_step(adata, config):
+    """Embed data using config overrides or defaults."""
+    logger = logging.getLogger("scGPT")
+    
+    # Extract embedding-specific config
+    embed_config = {
+        'gene_col': config.get('gene_col'),
+        'batch_size': config.get('batch_size'),
+        # Add other config items you want to override
+    }
+    
+    # Remove None values to use defaults
+    embed_config = {k: v for k, v in embed_config.items() if v is not None}
+    from scGPT_embedder import scGPTEmbedder
+    embedder = scGPTEmbedder(
+        model_dir=config['model_dir'],
+        config=embed_config
+    )
+    
+    return embedder.embed_data(adata)
 
 def main():
     #setup parsing
@@ -390,8 +410,6 @@ def main():
 
     # Step 3: Embedding (if enabled)
     if args.embed:
-        import scgpt as scg
-
         logger.info("=== STEP 3: Running embedding ===")
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {device}")
@@ -421,13 +439,7 @@ def main():
 
         if device == "cuda":
             logger.info("Using GPU for embedding")
-            embedding_adata = scg.tasks.embed_data(
-                adata,
-                gene_col=gene_col,
-                batch_size=batch_size,
-                model_dir= model_dir ,
-                device="cuda"
-            )
+            embedding_adata = embed_step(adata, config)
 
             if embedding_adata.var.index.name in embedding_adata.var.columns:
                 embedding_adata.var.index.name = f"{embedding_adata.var.index.name}_index"

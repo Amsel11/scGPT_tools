@@ -20,8 +20,6 @@ import sys
 from datetime import datetime
 import anndata as ad
 import torch
-import requests
-from tqdm import tqdm
 
 def setup_directories(repo_path = None, data_path = None, save_path = None, model_path = None):
     if repo_path is None:
@@ -50,7 +48,6 @@ def setup_directories(repo_path = None, data_path = None, save_path = None, mode
     return repo_dir, data_dir, save_dir, model_dir, directories
 
 def download_cellxgene_data(url, output_dir, file_name=None):
-    #for downloading from cellxgene from RJ's server 
     os.makedirs(output_dir, exist_ok=True)
     if file_name is not None:
         filename = file_name
@@ -83,6 +80,7 @@ def download_cellxgene_data(url, output_dir, file_name=None):
         if os.path.exists(file_path):
             os.remove(file_path)  # Remove partial download
         return None
+
 
 
 def test_embed_config(adata=None, config_path=None, metadata_path=None):
@@ -328,6 +326,67 @@ if __name__ == "__main__":
     
     test_embed_config(config_path=args.config, metadata_path=args.metadata)
 
+
+def generate_basic_html_report(analysis_text, found_keys, adata, output_path):
+    """
+    Generate a simple HTML report with the analysis text and metadata.
+    No visualizations, just nicely formatted text.
+    """
+    # Format the analysis text for HTML
+    html_analysis = escape(analysis_text).replace('\n', '<br>').replace('  ', '&nbsp;&nbsp;')
+    
+    # Create basic metadata table
+    metadata_table = "<table border='1' cellpadding='5' cellspacing='0'>\n"
+    metadata_table += "<tr><th>Category</th><th>Found Keys</th></tr>\n"
+    
+    for category, keys in found_keys.items():
+        category_name = category.replace('_', ' ').title()
+        keys_list = ", ".join(keys) if keys else "None found"
+        metadata_table += f"<tr><td>{category_name}</td><td>{keys_list}</td></tr>\n"
+    
+    metadata_table += "</table>"
+    
+    # Create dataset summary
+    dataset_summary = f"<h3>Dataset Summary</h3>"
+    dataset_summary += f"<p>Dimensions: {adata.n_obs} cells × {adata.n_vars} genes</p>"
+    
+    # Create HTML file
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>scGPT Analysis: {Path(output_path).stem}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
+            pre {{ background-color: #f5f5f5; padding: 15px; overflow-x: auto; }}
+            h1, h2, h3 {{ color: #2c3e50; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+            th, td {{ text-align: left; padding: 12px; }}
+            th {{ background-color: #f2f2f2; }}
+            .analysis {{ background-color: #f9f9f9; padding: 20px; border-radius: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>scGPT Data Analysis Report</h1>
+        
+        {dataset_summary}
+        
+        <h2>Found Metadata Keys</h2>
+        {metadata_table}
+        
+        <h2>Detailed Analysis</h2>
+        <div class="analysis">
+            {html_analysis}
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Write to file
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    return output_path
 
 
 # loading utils functions for loading subset of data
